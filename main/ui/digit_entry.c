@@ -10,6 +10,14 @@ static const char ENTRY_CHARS[] = { '0', '1', '2', '3', '4', '5', '6', '7', '8',
 // The number of available digits, i.e. not including backspace or enter
 #define NUM_ENTRY_DIGITS (sizeof(ENTRY_CHARS) / sizeof(ENTRY_CHARS[0]) - 2)
 
+static uint8_t get_num_entry_digits(const digit_entry_t* digit_entry)
+{
+    JADE_ASSERT(digit_entry);
+    const uint8_t num_digits = digit_entry->num_digits ? digit_entry->num_digits : DIGIT_ENTRY_SIZE;
+    JADE_ASSERT(num_digits >= 3 && num_digits <= DIGIT_ENTRY_SIZE);
+    return num_digits;
+}
+
 static inline bool entry_invert_navigation(void)
 {
 #if defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAYS3)                             \
@@ -55,7 +63,7 @@ static void reinitialise_current_entry_digit(digit_entry_t* digit_entry)
 static void update_digit_node(digit_entry_t* digit_entry, uint8_t i)
 {
     JADE_ASSERT(digit_entry);
-    JADE_ASSERT(i < DIGIT_ENTRY_SIZE);
+    JADE_ASSERT(i < get_num_entry_digits(digit_entry));
 
     char strdigit[] = { '\0', '\0' };
     switch (digit_entry->digit_status[i]) {
@@ -106,15 +114,17 @@ void make_digit_entry_activity(digit_entry_t* digit_entry, const char* title, co
     gui_set_parent(node, vsplit);
 
     const size_t toppad = CONFIG_DISPLAY_HEIGHT > 200 ? 20 : CONFIG_DISPLAY_HEIGHT > 160 ? 12 : 4;
-    const size_t lrpad = (CONFIG_DISPLAY_WIDTH - (6 * 35)) / 2;
-    gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_ABSOLUTE, 6, 35, 35, 35, 35, 35, 35);
+    const uint8_t num_digits = get_num_entry_digits(digit_entry);
+    const size_t digits_width = num_digits * 35;
+    JADE_ASSERT(CONFIG_DISPLAY_WIDTH >= digits_width);
+    const size_t lrpad = (CONFIG_DISPLAY_WIDTH - digits_width) / 2;
+    gui_view_node_t* const hsplit = make_even_split(UI_ROW, num_digits);
     gui_set_margins(hsplit, GUI_MARGIN_ALL_DIFFERENT, toppad, lrpad, toppad + 8, lrpad);
     gui_set_parent(hsplit, vsplit);
 
     reinitialise_current_entry_digit(digit_entry);
 
-    for (size_t i = 0; i < DIGIT_ENTRY_SIZE; ++i) {
+    for (size_t i = 0; i < num_digits; ++i) {
         digit_entry->digit[i] = 0xFF;
         digit_entry->digit_status[i] = i == 0 ? SELECTED : EMPTY;
 
@@ -151,7 +161,8 @@ void make_digit_entry_activity(digit_entry_t* digit_entry, const char* title, co
 static bool next_selected_digit(digit_entry_t* digit_entry)
 {
     JADE_ASSERT(digit_entry);
-    JADE_ASSERT(digit_entry->selected_digit < DIGIT_ENTRY_SIZE);
+    const uint8_t num_digits = get_num_entry_digits(digit_entry);
+    JADE_ASSERT(digit_entry->selected_digit < num_digits);
 
     // make sure the '<' is not selected
     JADE_ASSERT(digit_entry->current_selected_value < 10);
@@ -165,7 +176,7 @@ static bool next_selected_digit(digit_entry_t* digit_entry)
     ++digit_entry->selected_digit;
 
     // reached the last digit - cannot select next, return false
-    if (digit_entry->selected_digit >= DIGIT_ENTRY_SIZE) {
+    if (digit_entry->selected_digit >= num_digits) {
         return false;
     }
 
@@ -181,7 +192,7 @@ static bool next_selected_digit(digit_entry_t* digit_entry)
 static bool prev_selected_digit(digit_entry_t* digit_entry)
 {
     JADE_ASSERT(digit_entry);
-    JADE_ASSERT(digit_entry->selected_digit < DIGIT_ENTRY_SIZE);
+    JADE_ASSERT(digit_entry->selected_digit < get_num_entry_digits(digit_entry));
 
     // at the first digit - cannot select previous, return false
     if (digit_entry->selected_digit == 0) {
@@ -274,7 +285,8 @@ void reset_digit_entry(digit_entry_t* digit_entry, const char* title)
     reinitialise_current_entry_digit(digit_entry);
 
     // Mark all digits as unset
-    for (size_t i = 0; i < DIGIT_ENTRY_SIZE; ++i) {
+    const uint8_t num_digits = get_num_entry_digits(digit_entry);
+    for (size_t i = 0; i < num_digits; ++i) {
         digit_entry->digit[i] = 0xFF;
         digit_entry->digit_status[i] = i == 0 ? SELECTED : EMPTY;
         update_digit_node(digit_entry, i);
@@ -290,9 +302,10 @@ uint32_t get_entry_as_number(const digit_entry_t* digit_entry)
 {
     JADE_ASSERT(digit_entry);
     if (digit_entry->entry_type == DIGIT_ENTRY_INDEX) {
-        JADE_ASSERT(digit_entry->selected_digit > 0 && digit_entry->selected_digit <= DIGIT_ENTRY_SIZE); // entry valid
+        JADE_ASSERT(digit_entry->selected_digit > 0
+            && digit_entry->selected_digit <= get_num_entry_digits(digit_entry)); // entry valid
     } else {
-        JADE_ASSERT(digit_entry->selected_digit == DIGIT_ENTRY_SIZE); // entry complete
+        JADE_ASSERT(digit_entry->selected_digit == get_num_entry_digits(digit_entry)); // entry complete
     }
 
     uint32_t val = 0;

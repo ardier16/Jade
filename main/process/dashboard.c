@@ -3,6 +3,7 @@
 #include "../button_events.h"
 #include "../descriptor.h"
 #include "../display.h"
+#include "../idletimer.h"
 #include "../input.h"
 #include "../jade_assert.h"
 #include "../jade_wally_verify.h"
@@ -188,6 +189,10 @@ gui_activity_t* make_prefs_settings_activity(bool initialised_and_locked, gui_vi
 gui_activity_t* make_display_settings_activity(void);
 gui_activity_t* make_info_activity(const char* fw_version);
 gui_activity_t* make_device_info_activity(void);
+gui_activity_t* make_tools_games_activity(void);
+gui_activity_t* make_stopwatch_activity(gui_view_node_t** time_text, gui_view_node_t** action_text);
+gui_activity_t* make_timer_activity(gui_view_node_t** time_text, gui_view_node_t** action_text);
+gui_activity_t* make_timer_complete_activity(void);
 
 #ifdef CONFIG_BOARD_TYPE_JADE_ANY
 gui_activity_t* make_legal_certifications_activity(void);
@@ -2159,6 +2164,275 @@ static void handle_network_type(gui_view_node_t* network_type_item)
     update_network_menu_label(network_type_item);
 }
 
+#define STOPWATCH_MAX_SECONDS ((100 * 60 * 60) - 1)
+#define TIMER_UPDATE_TICKS (1000 / portTICK_PERIOD_MS)
+
+static void format_hhmmss(char* output, const size_t output_len, const uint32_t total_seconds)
+{
+    JADE_ASSERT(output);
+    JADE_ASSERT(output_len >= 9);
+
+    const uint32_t hours = total_seconds / (60 * 60);
+    const uint32_t minutes = (total_seconds / 60) % 60;
+    const uint32_t seconds = total_seconds % 60;
+    const int ret
+        = snprintf(output, output_len, "%02u:%02u:%02u", (unsigned)hours, (unsigned)minutes, (unsigned)seconds);
+    JADE_ASSERT(ret == 8);
+}
+
+static uint64_t seconds_to_ticks(const uint32_t seconds) { return ((uint64_t)seconds * 1000) / portTICK_PERIOD_MS; }
+
+static void set_timing_active(const bool active)
+{
+    idletimer_set_min_timeout_secs(active ? UINT16_MAX : 0);
+    if (active) {
+        // The device idle timeout and screen-dimming timeout are tracked independently.
+        idletimer_register_activity(true);
+    }
+}
+
+static void handle_stopwatch(void)
+{
+    gui_view_node_t* time_text = NULL;
+    gui_view_node_t* action_text = NULL;
+    gui_activity_t* const act = make_stopwatch_activity(&time_text, &action_text);
+    JADE_ASSERT(time_text);
+    JADE_ASSERT(action_text);
+    gui_set_current_activity_ex(act, true);
+
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+    gui_activity_register_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    const uint64_t max_ticks = seconds_to_ticks(STOPWATCH_MAX_SECONDS);
+    uint64_t elapsed_ticks = 0;
+    TickType_t started_at = 0;
+    uint32_t displayed_seconds = UINT32_MAX;
+    bool running = false;
+    bool done = false;
+
+    while (!done) {
+        uint64_t current_ticks = elapsed_ticks;
+        if (running) {
+            current_ticks += (TickType_t)(xTaskGetTickCount() - started_at);
+            if (current_ticks >= max_ticks) {
+                current_ticks = max_ticks;
+                elapsed_ticks = max_ticks;
+                running = false;
+                gui_update_text(action_text, "Start");
+                set_timing_active(false);
+            } else {
+                set_timing_active(true);
+            }
+        }
+
+        const uint32_t current_seconds = (current_ticks * portTICK_PERIOD_MS) / 1000;
+        if (current_seconds != displayed_seconds) {
+            char value[9];
+            format_hhmmss(value, sizeof(value), current_seconds);
+            gui_update_text(time_text, value);
+            displayed_seconds = current_seconds;
+        }
+
+        int32_t ev_id;
+        if (sync_wait_event(event_data, NULL, &ev_id, NULL, TIMER_UPDATE_TICKS) != ESP_OK) {
+            continue;
+        }
+
+        switch (ev_id) {
+        case BTN_STOPWATCH_TOGGLE:
+            if (running) {
+                elapsed_ticks += (TickType_t)(xTaskGetTickCount() - started_at);
+                if (elapsed_ticks > max_ticks) {
+                    elapsed_ticks = max_ticks;
+                }
+                running = false;
+                gui_update_text(action_text, "Start");
+                set_timing_active(false);
+            } else if (elapsed_ticks < max_ticks) {
+                started_at = xTaskGetTickCount();
+                running = true;
+                gui_update_text(action_text, "Stop");
+                set_timing_active(true);
+            }
+            break;
+
+        case BTN_STOPWATCH_RESET:
+            running = false;
+            elapsed_ticks = 0;
+            displayed_seconds = UINT32_MAX;
+            gui_update_text(action_text, "Start");
+            set_timing_active(false);
+            break;
+
+        case BTN_STOPWATCH_EXIT:
+            done = true;
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    set_timing_active(false);
+}
+
+typedef enum {
+    TIMER_COUNTDOWN_EXIT,
+    TIMER_COUNTDOWN_RESET,
+    TIMER_COUNTDOWN_COMPLETE,
+} timer_countdown_result_t;
+
+static timer_countdown_result_t run_timer_countdown(const uint32_t minutes)
+{
+    JADE_ASSERT(minutes > 0 && minutes <= 999);
+
+    gui_view_node_t* time_text = NULL;
+    gui_view_node_t* action_text = NULL;
+    gui_activity_t* const act = make_timer_activity(&time_text, &action_text);
+    JADE_ASSERT(time_text);
+    JADE_ASSERT(action_text);
+    gui_set_current_activity_ex(act, true);
+
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+    gui_activity_register_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    uint64_t remaining_ticks = seconds_to_ticks(minutes * 60);
+    TickType_t started_at = xTaskGetTickCount();
+    uint32_t displayed_seconds = UINT32_MAX;
+    bool running = true;
+    set_timing_active(true);
+
+    while (true) {
+        uint64_t current_ticks = remaining_ticks;
+        if (running) {
+            const TickType_t elapsed = (TickType_t)(xTaskGetTickCount() - started_at);
+            if (elapsed >= remaining_ticks) {
+                set_timing_active(false);
+                return TIMER_COUNTDOWN_COMPLETE;
+            }
+            current_ticks -= elapsed;
+            set_timing_active(true);
+        }
+
+        const uint32_t current_seconds = (current_ticks * portTICK_PERIOD_MS + 999) / 1000;
+        if (current_seconds != displayed_seconds) {
+            char value[9];
+            format_hhmmss(value, sizeof(value), current_seconds);
+            gui_update_text(time_text, value);
+            displayed_seconds = current_seconds;
+        }
+
+        int32_t ev_id;
+        if (sync_wait_event(event_data, NULL, &ev_id, NULL, TIMER_UPDATE_TICKS) != ESP_OK) {
+            continue;
+        }
+
+        switch (ev_id) {
+        case BTN_TIMER_TOGGLE:
+            if (running) {
+                const TickType_t elapsed = (TickType_t)(xTaskGetTickCount() - started_at);
+                remaining_ticks = elapsed < remaining_ticks ? remaining_ticks - elapsed : 0;
+                if (!remaining_ticks) {
+                    set_timing_active(false);
+                    return TIMER_COUNTDOWN_COMPLETE;
+                }
+                running = false;
+                gui_update_text(action_text, "Resume");
+                set_timing_active(false);
+            } else {
+                started_at = xTaskGetTickCount();
+                running = true;
+                gui_update_text(action_text, "Pause");
+                set_timing_active(true);
+            }
+            break;
+
+        case BTN_TIMER_RESET:
+            set_timing_active(false);
+            return TIMER_COUNTDOWN_RESET;
+
+        case BTN_TIMER_EXIT:
+            set_timing_active(false);
+            return TIMER_COUNTDOWN_EXIT;
+
+        default:
+            break;
+        }
+    }
+}
+
+static int32_t show_timer_complete(void)
+{
+    gui_activity_t* const act = make_timer_complete_activity();
+    gui_set_current_activity_ex(act, true);
+    return gui_activity_wait_button(act, BTN_TIMER_EXIT);
+}
+
+static bool get_timer_minutes(uint32_t* minutes)
+{
+    JADE_ASSERT(minutes);
+
+    while (true) {
+        digit_entry_t digit_entry
+            = { .entry_type = DIGIT_ENTRY_NUMERIC, .initial_state = ZERO, .digits_shown = true, .num_digits = 3 };
+        make_digit_entry_activity(&digit_entry, "Timer", "Minutes (001-999):");
+        JADE_ASSERT(digit_entry.activity);
+        gui_set_current_activity_ex(digit_entry.activity, true);
+
+        if (!run_digit_entry_loop(&digit_entry)) {
+            return false;
+        }
+
+        *minutes = get_entry_as_number(&digit_entry);
+        if (*minutes) {
+            return true;
+        }
+
+        await_error_2("Timer must be set", "to 001-999 minutes");
+    }
+}
+
+static void handle_timer(void)
+{
+    uint32_t minutes = 0;
+    bool request_minutes = true;
+
+    while (true) {
+        if (request_minutes) {
+            if (!get_timer_minutes(&minutes)) {
+                return;
+            }
+            request_minutes = false;
+        }
+
+        switch (run_timer_countdown(minutes)) {
+        case TIMER_COUNTDOWN_EXIT:
+            return;
+
+        case TIMER_COUNTDOWN_RESET:
+            request_minutes = true;
+            break;
+
+        case TIMER_COUNTDOWN_COMPLETE:
+            switch (show_timer_complete()) {
+            case BTN_TIMER_RESTART:
+                break;
+
+            case BTN_TIMER_CHANGE:
+                request_minutes = true;
+                break;
+
+            case BTN_TIMER_EXIT:
+            default:
+                return;
+            }
+            break;
+        }
+    }
+}
+
 // Create the appropriate 'Settings' menu
 static gui_activity_t* create_settings_menu(const bool startup_menu)
 {
@@ -2216,11 +2490,23 @@ static void handle_settings(const bool startup_menu)
         case BTN_SETTINGS_WALLET_EXIT:
         case BTN_SETTINGS_AUTHENTICATION_EXIT:
         case BTN_SETTINGS_PINSERVER_EXIT:
+        case BTN_TOOLS_GAMES_EXIT:
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
         case BTN_SETTINGS_USBSTORAGE_EXIT:
 #endif
             // Change to base 'Settings' menu
             act = create_settings_menu(startup_menu);
+            break;
+        case BTN_SETTINGS_TOOLS_GAMES:
+            act = make_tools_games_activity();
+            break;
+        case BTN_TOOLS_STOPWATCH:
+            handle_stopwatch();
+            act = make_tools_games_activity();
+            break;
+        case BTN_TOOLS_TIMER:
+            handle_timer();
+            act = make_tools_games_activity();
             break;
         case BTN_SETTINGS_WALLET:
             // Change to 'Wallet' menu

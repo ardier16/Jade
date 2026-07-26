@@ -43,6 +43,7 @@ enum __attribute__((__packed__)) digit_entry_type {
     DIGIT_ENTRY_INVALID = 0,
     DIGIT_ENTRY_PIN,
     DIGIT_ENTRY_INDEX,
+    DIGIT_ENTRY_NUMERIC,
 };
 
 enum __attribute__((__packed__)) digit_entry_initial_state { RANDOM, ZERO, POSITION };
@@ -64,6 +65,8 @@ typedef struct {
     const enum digit_entry_type entry_type;
     const enum digit_entry_initial_state initial_state;
     const bool digits_shown;
+    // Zero preserves the historical six-digit entry behaviour.
+    const uint8_t num_digits;
 
     uint8_t digit[DIGIT_ENTRY_SIZE];
     enum digit_entry_status digit_status[DIGIT_ENTRY_SIZE];

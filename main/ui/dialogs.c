@@ -254,7 +254,7 @@ gui_activity_t* make_text_grid_activity(const char* title, btn_data_t* hdrbtns, 
 }
 
 // Helper to create an activity to show a vertical menu
-// Must pass title-bar information - supports up to 4 menu buttons
+// Must pass title-bar information - supports up to 5 menu buttons
 gui_activity_t* make_menu_activity(
     const char* title, btn_data_t* hdrbtns, const size_t num_hdrbtns, btn_data_t* menubtns, const size_t num_menubtns)
 {
@@ -262,7 +262,7 @@ gui_activity_t* make_menu_activity(
     // Header buttons are optional
     JADE_ASSERT(menubtns);
     JADE_ASSERT(num_menubtns);
-    JADE_ASSERT(num_menubtns < 5);
+    JADE_ASSERT(num_menubtns < 6);
 
     // Explicitly set just left|top|right borders around header buttons when menu is 'full'
     // as bottom edge will be covered by upper line above top menu item.
