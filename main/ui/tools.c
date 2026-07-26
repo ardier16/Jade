@@ -10,7 +10,7 @@ gui_activity_t* make_tools_games_activity(void)
 
     btn_data_t menubtns[] = { { .txt = "Stopwatch", .font = GUI_DEFAULT_FONT, .ev_id = BTN_TOOLS_STOPWATCH },
         { .txt = "Timer", .font = GUI_DEFAULT_FONT, .ev_id = BTN_TOOLS_TIMER },
-        { .txt = "2048 - Coming soon", .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+        { .txt = "2048", .font = GUI_DEFAULT_FONT, .ev_id = BTN_TOOLS_2048 } };
 
     return make_menu_activity("Tools & Games", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
 }

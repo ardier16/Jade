@@ -119,6 +119,27 @@ typedef struct {
     uint8_t borders;
 } btn_data_t;
 
+#define UI_2048_CELL_COUNT 16
+
+typedef struct {
+    gui_activity_t* activity;
+    gui_view_node_t* board;
+    gui_view_node_t* hud;
+    gui_view_node_t* tile_fills[UI_2048_CELL_COUNT];
+    gui_view_node_t* tile_texts[UI_2048_CELL_COUNT];
+    gui_view_node_t* score_text;
+    gui_view_node_t* axis_text;
+    gui_view_node_t* select_text;
+} ui_2048_view_t;
+
+gui_activity_t* make_2048_activity(ui_2048_view_t* view);
+void update_2048_activity(const ui_2048_view_t* view, const uint8_t tiles[UI_2048_CELL_COUNT], uint64_t score,
+    bool vertical, uint16_t accent_mask);
+gui_activity_t* make_2048_pause_activity(void);
+gui_activity_t* make_2048_confirm_activity(const char* title, const char* message);
+gui_activity_t* make_2048_win_activity(uint64_t score);
+gui_activity_t* make_2048_game_over_activity(uint64_t score);
+
 // Helper to update dynamic menu item label (name: value)
 void update_menu_item(gui_view_node_t* node, const char* label, const char* value);
 

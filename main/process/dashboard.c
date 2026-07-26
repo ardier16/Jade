@@ -3,6 +3,7 @@
 #include "../button_events.h"
 #include "../descriptor.h"
 #include "../display.h"
+#include "../game_2048.h"
 #include "../idletimer.h"
 #include "../input.h"
 #include "../jade_assert.h"
@@ -2433,6 +2434,246 @@ static void handle_timer(void)
     }
 }
 
+#define GAME_2048_HEARTBEAT_TICKS (30000 / portTICK_PERIOD_MS)
+#define GAME_2048_CUE_TICKS (80 / portTICK_PERIOD_MS)
+#define GAME_2048_DOUBLE_SELECT_MIN_TICKS (150 / portTICK_PERIOD_MS)
+#define GAME_2048_DOUBLE_SELECT_MAX_TICKS (500 / portTICK_PERIOD_MS)
+
+_Static_assert(UI_2048_CELL_COUNT == GAME_2048_CELL_COUNT, "2048 UI and engine board sizes must match");
+
+typedef enum {
+    GAME_2048_FLOW_RESUME,
+    GAME_2048_FLOW_NEW,
+    GAME_2048_FLOW_EXIT,
+} game_2048_flow_result_t;
+
+static bool game_2048_random(void* ctx, const uint8_t upper_bound, uint8_t* value)
+{
+    (void)ctx;
+    if (!upper_bound || !value) {
+        return false;
+    }
+    *value = get_uniform_random_byte(upper_bound);
+    return true;
+}
+
+static int32_t wait_2048_event(gui_activity_t* act, esp_event_base_t event_base)
+{
+    JADE_ASSERT(act);
+
+    while (true) {
+        int32_t ev_id;
+        if (gui_activity_wait_event(act, event_base, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, GAME_2048_HEARTBEAT_TICKS)) {
+            return ev_id;
+        }
+        set_timing_active(true);
+    }
+}
+
+static bool confirm_2048_action(const char* title, const char* message, gui_activity_t* return_activity)
+{
+    JADE_ASSERT(title);
+    JADE_ASSERT(message);
+    JADE_ASSERT(return_activity);
+
+    gui_activity_t* const confirm = make_2048_confirm_activity(title, message);
+    gui_set_current_activity(confirm);
+    const bool accepted = wait_2048_event(confirm, GUI_BUTTON_EVENT) == BTN_YES;
+    if (!accepted) {
+        gui_set_current_activity(return_activity);
+    }
+    return accepted;
+}
+
+static game_2048_flow_result_t show_2048_pause(gui_activity_t* board)
+{
+    JADE_ASSERT(board);
+
+    gui_activity_t* const pause = make_2048_pause_activity();
+    gui_set_current_activity(pause);
+    while (true) {
+        switch (wait_2048_event(pause, GUI_BUTTON_EVENT)) {
+        case BTN_2048_RESUME:
+            gui_set_current_activity_ex(board, true);
+            return GAME_2048_FLOW_RESUME;
+
+        case BTN_2048_NEW:
+            if (confirm_2048_action("New Game?", "Discard this game?", pause)) {
+                return GAME_2048_FLOW_NEW;
+            }
+            break;
+
+        case BTN_2048_EXIT:
+            if (confirm_2048_action("Exit 2048?", "Discard this game?", pause)) {
+                return GAME_2048_FLOW_EXIT;
+            }
+            break;
+
+        default:
+            break;
+        }
+    }
+}
+
+static game_2048_flow_result_t show_2048_win(gui_activity_t* board, const uint64_t score)
+{
+    JADE_ASSERT(board);
+
+    gui_activity_t* const win = make_2048_win_activity(score);
+    gui_set_current_activity(win);
+    while (true) {
+        switch (wait_2048_event(win, GUI_BUTTON_EVENT)) {
+        case BTN_2048_CONTINUE:
+            gui_set_current_activity_ex(board, true);
+            return GAME_2048_FLOW_RESUME;
+
+        case BTN_2048_NEW:
+            if (confirm_2048_action("New Game?", "Discard this game?", win)) {
+                return GAME_2048_FLOW_NEW;
+            }
+            break;
+
+        default:
+            break;
+        }
+    }
+}
+
+static game_2048_flow_result_t show_2048_game_over(const uint64_t score)
+{
+    gui_activity_t* const game_over = make_2048_game_over_activity(score);
+    gui_set_current_activity(game_over);
+    while (true) {
+        switch (wait_2048_event(game_over, GUI_BUTTON_EVENT)) {
+        case BTN_2048_RESTART:
+            return GAME_2048_FLOW_NEW;
+        case BTN_2048_EXIT:
+            return GAME_2048_FLOW_EXIT;
+        default:
+            break;
+        }
+    }
+}
+
+static uint16_t game_2048_occupied_mask(const game_2048_t* game)
+{
+    JADE_ASSERT(game);
+
+    uint16_t mask = 0;
+    for (uint8_t i = 0; i < GAME_2048_CELL_COUNT; ++i) {
+        if (game->cells[i]) {
+            mask |= UINT16_C(1) << i;
+        }
+    }
+    return mask;
+}
+
+static void start_2048_game(game_2048_t* game, const ui_2048_view_t* view, bool* vertical, bool* win_shown)
+{
+    JADE_ASSERT(game);
+    JADE_ASSERT(view);
+    JADE_ASSERT(vertical);
+    JADE_ASSERT(win_shown);
+    JADE_ASSERT(game_2048_new(game, game_2048_random, NULL));
+
+    *vertical = false;
+    *win_shown = false;
+    gui_set_current_activity_ex(view->activity, true);
+    update_2048_activity(view, game->cells, game->score, *vertical, game_2048_occupied_mask(game));
+    vTaskDelay(GAME_2048_CUE_TICKS);
+    update_2048_activity(view, game->cells, game->score, *vertical, 0);
+}
+
+static void handle_2048(void)
+{
+    game_2048_t game;
+    ui_2048_view_t view;
+    make_2048_activity(&view);
+
+    bool vertical;
+    bool win_shown;
+    bool done = false;
+    bool select_armed = false;
+    TickType_t last_select_tick = 0;
+
+    set_timing_active(true);
+    start_2048_game(&game, &view, &vertical, &win_shown);
+
+    while (!done) {
+        const int32_t ev_id = wait_2048_event(view.activity, GUI_EVENT);
+        if (ev_id == gui_get_click_event()) {
+            const TickType_t now = xTaskGetTickCount();
+            if (select_armed) {
+                const TickType_t elapsed = now - last_select_tick;
+                if (elapsed < GAME_2048_DOUBLE_SELECT_MIN_TICKS) {
+                    last_select_tick = now;
+                    continue;
+                }
+                if (elapsed <= GAME_2048_DOUBLE_SELECT_MAX_TICKS) {
+                    // Restore the axis changed by the first click before opening Pause.
+                    vertical = !vertical;
+                    select_armed = false;
+                    const game_2048_flow_result_t flow = show_2048_pause(view.activity);
+                    if (flow == GAME_2048_FLOW_EXIT) {
+                        done = true;
+                    } else if (flow == GAME_2048_FLOW_NEW) {
+                        start_2048_game(&game, &view, &vertical, &win_shown);
+                    } else {
+                        update_2048_activity(&view, game.cells, game.score, vertical, 0);
+                    }
+                    continue;
+                }
+            }
+
+            vertical = !vertical;
+            select_armed = true;
+            last_select_tick = now;
+            update_2048_activity(&view, game.cells, game.score, vertical, 0);
+            continue;
+        }
+
+        game_2048_direction_t direction;
+        if (ev_id == GUI_WHEEL_LEFT_EVENT) {
+            direction = vertical ? GAME_2048_UP : GAME_2048_LEFT;
+        } else if (ev_id == GUI_WHEEL_RIGHT_EVENT) {
+            direction = vertical ? GAME_2048_DOWN : GAME_2048_RIGHT;
+        } else {
+            continue;
+        }
+        select_armed = false;
+
+        game_2048_move_result_t move;
+        JADE_ASSERT(game_2048_move(&game, direction, game_2048_random, NULL, &move));
+        if (move.changed) {
+            update_2048_activity(&view, game.cells, game.score, vertical, move.merged_mask | move.spawned_mask);
+            vTaskDelay(GAME_2048_CUE_TICKS);
+            update_2048_activity(&view, game.cells, game.score, vertical, 0);
+        }
+
+        if (move.reached_2048 && !win_shown) {
+            win_shown = true;
+            select_armed = false;
+            const game_2048_flow_result_t flow = show_2048_win(view.activity, game.score);
+            if (flow == GAME_2048_FLOW_NEW) {
+                start_2048_game(&game, &view, &vertical, &win_shown);
+                continue;
+            }
+        }
+
+        if (move.game_over) {
+            select_armed = false;
+            const game_2048_flow_result_t flow = show_2048_game_over(game.score);
+            if (flow == GAME_2048_FLOW_NEW) {
+                start_2048_game(&game, &view, &vertical, &win_shown);
+            } else {
+                done = true;
+            }
+        }
+    }
+
+    set_timing_active(false);
+}
+
 // Create the appropriate 'Settings' menu
 static gui_activity_t* create_settings_menu(const bool startup_menu)
 {
@@ -2506,6 +2747,10 @@ static void handle_settings(const bool startup_menu)
             break;
         case BTN_TOOLS_TIMER:
             handle_timer();
+            act = make_tools_games_activity();
+            break;
+        case BTN_TOOLS_2048:
+            handle_2048();
             act = make_tools_games_activity();
             break;
         case BTN_SETTINGS_WALLET:

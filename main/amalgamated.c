@@ -56,6 +56,7 @@ void __wrap_abort(void);
 #include "./fonts/minya24.c"
 #include "./fonts/tooney32.c"
 #include "./fonts/various_symbols.c"
+#include "./game_2048.c"
 #include "./gui.c"
 #include "./identity.c"
 #ifndef CONFIG_LIBJADE
@@ -142,6 +143,7 @@ void __wrap_abort(void);
 #include "./ui/descriptor.c"
 #include "./ui/dialogs.c"
 #include "./ui/digit_entry.c"
+#include "./ui/game_2048.c"
 #ifndef CONFIG_LIBJADE
 #include "./ui/keyboard.c"
 #endif // CONFIG_LIBJADE
