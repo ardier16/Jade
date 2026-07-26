@@ -74,10 +74,24 @@ For the ESP32-S3 USB/JTAG Jade development device used here:
 export JADESERIALPORT=/dev/cu.usbmodem1101
 ```
 
-Configure, build, and flash Jade v2 development firmware:
+Configure, build, and flash Jade v2 development firmware.
+
+If you want Green Qt to connect to this firmware over the ESP32-S3
+USB Serial/JTAG port, do not enable UART logging on that same stream. In
+practice, do not combine `--jtag` with `--log`, `--log-cbor`, or `--log-wifi`:
+Green expects the opened serial port to contain only Jade CBOR RPC messages.
 
 ```sh
-./tools/switch_to.sh jade_v2 --dev --log --jtag
+./tools/switch_to.sh jade_v2 --dev --jtag
+idf.py all
+idf.py -p "$JADESERIALPORT" flash
+```
+
+If you do not need ESP USB Serial/JTAG debugging, use the normal TinyUSB CDC
+Jade serial endpoint instead:
+
+```sh
+./tools/switch_to.sh jade_v2 --dev
 idf.py all
 idf.py -p "$JADESERIALPORT" flash
 ```
@@ -117,7 +131,7 @@ Use this heavier reset only when changing device target, changing
 
 ```sh
 rm -rf build sdkconfig sdkconfig.defaults managed_components
-./tools/switch_to.sh jade_v2 --dev --log --jtag
+./tools/switch_to.sh jade_v2 --dev --jtag
 idf.py all
 idf.py -p "$JADESERIALPORT" flash
 ```
