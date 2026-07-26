@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Signing Engineer"
+  short_description: "Change and debug Jade signing flows safely"
+  default_prompt: "Use $jade-signing-engineer to implement or debug a Jade transaction-signing flow."

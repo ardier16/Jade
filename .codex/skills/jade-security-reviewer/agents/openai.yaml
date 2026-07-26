@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Security Reviewer"
+  short_description: "Review Jade wallet security and trust boundaries"
+  default_prompt: "Use $jade-security-reviewer to review a Jade change for wallet and firmware security risks."

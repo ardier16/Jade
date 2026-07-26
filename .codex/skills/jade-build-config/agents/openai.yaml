@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Build and Config"
+  short_description: "Maintain Jade builds, configs, CI, and releases"
+  default_prompt: "Use $jade-build-config to update or diagnose Jade build configuration and CI safely."

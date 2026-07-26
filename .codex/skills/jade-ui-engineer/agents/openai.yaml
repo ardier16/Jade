@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade UI Engineer"
+  short_description: "Build Jade UI flows across device variants"
+  default_prompt: "Use $jade-ui-engineer to implement a Jade screen or interaction across supported inputs."

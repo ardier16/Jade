@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Client Protocol"
+  short_description: "Evolve Jade CBOR and Python client APIs"
+  default_prompt: "Use $jade-client-protocol to change a Jade RPC and its Python client API compatibly."

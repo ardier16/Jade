@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Test Debugger"
+  short_description: "Reproduce Jade failures with libjade and QEMU"
+  default_prompt: "Use $jade-test-debugger to reproduce, isolate, and verify a Jade failure without physical hardware."

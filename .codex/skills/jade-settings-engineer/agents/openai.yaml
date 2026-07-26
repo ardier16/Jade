@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jade Settings Engineer"
+  short_description: "Implement persistent Jade settings end to end"
+  default_prompt: "Use $jade-settings-engineer to add or change a Jade firmware setting safely."
