@@ -368,7 +368,7 @@ gui_activity_t* make_prefs_settings_activity(const bool initialised_and_locked, 
         { .txt = "PIN Start Digit", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_PIN_START_DIGIT },
         { .txt = "Bluetooth", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BLE } };
 
-    // If qr_mode_network_item status control passed, implies want that button visible
+    // If network_type_item status control passed, implies want that button visible
     // Otherwise show 'idle timeout' button
     if (network_type_item) {
         gui_make_text(network_type_item, "Network:", TFT_WHITE);

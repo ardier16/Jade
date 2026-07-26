@@ -184,7 +184,7 @@ gui_activity_t* make_wallet_settings_activity(void);
 gui_activity_t* make_device_settings_activity(void);
 gui_activity_t* make_usbstorage_settings_activity(bool unlocked);
 gui_activity_t* make_authentication_activity(bool initialised_and_pin_unlocked);
-gui_activity_t* make_prefs_settings_activity(bool initialised_and_locked, gui_view_node_t** qr_mode_network_item);
+gui_activity_t* make_prefs_settings_activity(bool initialised_and_locked, gui_view_node_t** network_type_item);
 gui_activity_t* make_display_settings_activity(void);
 gui_activity_t* make_info_activity(const char* fw_version);
 gui_activity_t* make_device_info_activity(void);
@@ -2129,8 +2129,7 @@ static void handle_network_type(gui_view_node_t* network_type_item)
 {
     JADE_ASSERT(network_type_item);
 
-    // Only expected for QR Mode atm
-    JADE_ASSERT(keychain_get() && keychain_get_userdata() == SOURCE_INTERNAL);
+    JADE_ASSERT(keychain_has_pin() && !keychain_has_temporary());
 
     network_type_t type = keychain_get_network_type_restriction();
 
@@ -2194,8 +2193,8 @@ static void handle_settings(const bool startup_menu)
     // hw initialised and that wallet has been unlocked with PIN (ie not a temporary signer)
     const bool hw_pin_unlocked = keychain_get() && keychain_has_pin() && !keychain_has_temporary();
 
-    // hw initialised with internal message source (ie. QR-mode)
-    const bool hw_qr_mode = keychain_get() && keychain_get_userdata() == SOURCE_INTERNAL;
+    // hw has a persisted wallet, whether locked or unlocked
+    const bool hw_has_persisted_wallet = keychain_has_pin() && !keychain_has_temporary();
     gui_view_node_t* network_type_item = NULL;
 
     // NOTE: menu navigation frees prior screens, as the navigation is
@@ -2253,8 +2252,9 @@ static void handle_settings(const bool startup_menu)
         case BTN_SETTINGS_PREFS:
         case BTN_SETTINGS_DISPLAY_EXIT:
             // Change to 'Preferences' menu (Settings)
-            // Only pass the qr_mode_network_item if we're in QR mode
-            act = make_prefs_settings_activity(hw_locked_initialised, hw_qr_mode ? &network_type_item : NULL);
+            network_type_item = NULL;
+            act = make_prefs_settings_activity(
+                hw_locked_initialised, hw_has_persisted_wallet ? &network_type_item : NULL);
             if (network_type_item) {
                 update_network_menu_label(network_type_item);
             }

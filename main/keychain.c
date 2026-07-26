@@ -223,10 +223,7 @@ void keychain_set_network_type_restriction(const network_type_t network_type)
             storage_set_network_type_restriction(network_type);
         }
 
-        // If we have keys loaded in memory, set the in-memory value also
-        if (keychain_data) {
-            network_type_restriction = network_type;
-        }
+        network_type_restriction = network_type;
     }
 }
 
