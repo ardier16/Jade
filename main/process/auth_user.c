@@ -29,6 +29,11 @@ static bool change_pin_requested = false;
 
 void set_request_change_pin(const bool change_pin) { change_pin_requested = change_pin; }
 
+static enum digit_entry_initial_state get_pin_digit_initial_state(void)
+{
+    return storage_get_pin_start_zero() ? ZERO : RANDOM;
+}
+
 static void check_wallet_erase_pin(jade_process_t* process, const uint8_t* pin_entered, const size_t pin_len)
 {
     JADE_ASSERT(pin_entered);
@@ -78,7 +83,8 @@ static bool get_pin_get_aeskey(jade_process_t* process, const char* title, uint8
         msg = NULL;
     }
 
-    digit_entry_t digit_entry = { .entry_type = DIGIT_ENTRY_PIN, .initial_state = RANDOM, .digits_shown = false };
+    digit_entry_t digit_entry
+        = { .entry_type = DIGIT_ENTRY_PIN, .initial_state = get_pin_digit_initial_state(), .digits_shown = false };
     JADE_ASSERT(sizeof(digit_entry.digit) == pin_len);
     make_digit_entry_activity(&digit_entry, title, msg);
     JADE_ASSERT(digit_entry.activity);
@@ -123,7 +129,8 @@ static bool set_pin_get_aeskey(jade_process_t* process, const char* title, uint8
 
     // Enter PIN to lock mnemonic/key material.
     // In a debug unattended ci build, use hardcoded pin after a short delay
-    digit_entry_t digit_entry = { .entry_type = DIGIT_ENTRY_PIN, .initial_state = RANDOM, .digits_shown = false };
+    digit_entry_t digit_entry
+        = { .entry_type = DIGIT_ENTRY_PIN, .initial_state = get_pin_digit_initial_state(), .digits_shown = false };
     JADE_ASSERT(sizeof(digit_entry.digit) == pin_len);
     make_digit_entry_activity(&digit_entry, title, NULL);
     JADE_ASSERT(digit_entry.activity);

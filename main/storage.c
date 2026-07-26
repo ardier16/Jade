@@ -26,6 +26,7 @@ static const char* REPLAY_COUNTER_FIELD = "antireplay";
 static const char* BLOB_FIELD = "blob";
 static const char* KEY_FLAGS_FIELD = "keyflags";
 static const char* WALLET_ERASE_PIN = "walleterasepin";
+static const char* PIN_START_ZERO_FIELD = "pinstartzero";
 
 static const char* USER_PINSERVER_URL_A = "pinsvrurlA";
 static const char* USER_PINSERVER_URL_B = "pinsvrurlB";
@@ -707,6 +708,18 @@ bool storage_get_wallet_erase_pin(uint8_t* pin, const size_t pin_len)
 }
 
 bool storage_erase_wallet_erase_pin(void) { return erase_key(DEFAULT_NAMESPACE, WALLET_ERASE_PIN); }
+
+bool storage_set_pin_start_zero(const bool enabled)
+{
+    const uint8_t value = enabled ? 1 : 0;
+    return store_blob(DEFAULT_NAMESPACE, PIN_START_ZERO_FIELD, &value, sizeof(value));
+}
+
+bool storage_get_pin_start_zero(void)
+{
+    uint8_t value = 0;
+    return read_blob_fixed(DEFAULT_NAMESPACE, PIN_START_ZERO_FIELD, &value, sizeof(value)) ? value != 0 : false;
+}
 
 // Generic multisig
 bool storage_set_multisig_registration(const char* name, const uint8_t* registration, const size_t registration_len)

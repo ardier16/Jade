@@ -365,6 +365,7 @@ gui_activity_t* make_prefs_settings_activity(const bool initialised_and_locked, 
 
     btn_data_t menubtns[] = { { .txt = "Display", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY },
         { .txt = "Idle Timeout", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_IDLE_TIMEOUT },
+        { .txt = "PIN Start Digit", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_PIN_START_DIGIT },
         { .txt = "Bluetooth", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BLE } };
 
     // If qr_mode_network_item status control passed, implies want that button visible
@@ -380,11 +381,11 @@ gui_activity_t* make_prefs_settings_activity(const bool initialised_and_locked, 
     // If Jade is initialised and locked, show the 'change_pin' option.
     // If not (ie. is unlocked, or is uninitialised) show the ble option.
     if (initialised_and_locked) {
-        menubtns[2].txt = "Change PIN";
-        menubtns[2].ev_id = BTN_SETTINGS_CHANGE_PIN;
+        menubtns[3].txt = "Change PIN";
+        menubtns[3].ev_id = BTN_SETTINGS_CHANGE_PIN;
     }
 
-    return make_menu_activity("Settings", hdrbtns, 2, menubtns, 3);
+    return make_menu_activity("Settings", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
 }
 
 gui_activity_t* make_display_settings_activity(void)

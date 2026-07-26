@@ -1842,6 +1842,45 @@ static void handle_idle_timeout(void)
     }
 }
 
+static void update_pin_start_digit_text(gui_view_node_t* item_text, const bool start_zero)
+{
+    JADE_ASSERT(item_text);
+    gui_update_text(item_text, start_zero ? "Zero" : "Random");
+}
+
+static void handle_pin_start_digit(void)
+{
+    const bool initial_start_zero = storage_get_pin_start_zero();
+    bool new_start_zero = initial_start_zero;
+
+    gui_view_node_t* item_text = NULL;
+    gui_activity_t* const act = make_carousel_activity("PIN Start Digit", NULL, &item_text);
+    JADE_ASSERT(item_text);
+    update_pin_start_digit_text(item_text, new_start_zero);
+    gui_set_current_activity(act);
+
+    int32_t ev_id;
+    bool done = false;
+    while (!done) {
+        gui_activity_wait_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+
+        switch (ev_id) {
+        case GUI_WHEEL_LEFT_EVENT:
+        case GUI_WHEEL_RIGHT_EVENT:
+            new_start_zero = !new_start_zero;
+            update_pin_start_digit_text(item_text, new_start_zero);
+            break;
+
+        default:
+            done = ev_id == gui_get_click_event();
+        }
+    }
+
+    if (new_start_zero != initial_start_zero) {
+        storage_set_pin_start_zero(new_start_zero);
+    }
+}
+
 static void update_home_screen_item_highlight_color(gui_view_node_t* item)
 {
     JADE_ASSERT(item);
@@ -2273,6 +2312,10 @@ static void handle_settings(const bool startup_menu)
 
         case BTN_SETTINGS_NETWORK_TYPE:
             handle_network_type(network_type_item);
+            break;
+
+        case BTN_SETTINGS_PIN_START_DIGIT:
+            handle_pin_start_digit();
             break;
 
         case BTN_SETTINGS_BLE:
