@@ -16,7 +16,6 @@ Clone and set up ESP-IDF. Jade currently pins ESP-IDF from `Dockerfile`; at the
 time these notes were written that is `v5.5.4`.
 
 ```sh
-cd /Users/ardier16/Projects/Jade
 export ESP_IDF_BRANCH=$(grep ESP_IDF_BRANCH Dockerfile | sed 's/.*=//g')
 
 mkdir -p ~/esp
@@ -44,10 +43,7 @@ python3 ./tools/idf_tools.py install qemu-xtensa
 Start a fresh shell, then load ESP-IDF and prepare the Jade checkout:
 
 ```sh
-cd ~/esp/esp-idf
-. ./export.sh
-
-cd /Users/ardier16/Projects/Jade
+. ~/esp/esp-idf/export.sh
 git submodule update --init --recursive
 ```
 
@@ -76,17 +72,6 @@ export JADESERIALPORT=/dev/cu.usbmodem1101
 
 Configure, build, and flash Jade v2 development firmware.
 
-If you want Green Qt to connect to this firmware over the ESP32-S3
-USB Serial/JTAG port, do not enable UART logging on that same stream. In
-practice, do not combine `--jtag` with `--log`, `--log-cbor`, or `--log-wifi`:
-Green expects the opened serial port to contain only Jade CBOR RPC messages.
-
-```sh
-./tools/switch_to.sh jade_v2 --dev --jtag
-idf.py all
-idf.py -p "$JADESERIALPORT" flash
-```
-
 If you do not need ESP USB Serial/JTAG debugging, use the normal TinyUSB CDC
 Jade serial endpoint instead:
 
@@ -109,21 +94,12 @@ the target device or build options. Keep the same shell environment, or reload i
 in a new shell:
 
 ```sh
-cd ~/esp/esp-idf
-. ./export.sh
-
-cd /Users/ardier16/Projects/Jade
+. ~/esp/esp-idf/export.sh
 export PATH="/opt/homebrew/opt/gnu-sed/libexec/gnubin:/usr/local/opt/gnu-sed/libexec/gnubin:$PATH"
 unset CMAKE_TOOLCHAIN_FILE
 unset IDF_TARGET
-export JADESERIALPORT=/dev/cu.usbmodem1101
-```
-
-Then rebuild and flash:
-
-```sh
 idf.py all
-idf.py -p "$JADESERIALPORT" flash
+idf.py flash
 ```
 
 Use this heavier reset only when changing device target, changing
@@ -133,5 +109,5 @@ Use this heavier reset only when changing device target, changing
 rm -rf build sdkconfig sdkconfig.defaults managed_components
 ./tools/switch_to.sh jade_v2 --dev --jtag
 idf.py all
-idf.py -p "$JADESERIALPORT" flash
+idf.py flash
 ```
