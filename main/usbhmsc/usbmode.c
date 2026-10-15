@@ -7,10 +7,15 @@
 #include "../keychain.h"
 #include "../power.h"
 #include "../process.h"
+#include "../process/ota_defines.h"
+#include "../qrmode.h"
 #include "../serial.h"
+#include "../storage.h"
 #include "../ui.h"
 #include "../utils/malloc_ext.h"
 #include "../utils/network.h"
+#include "../utils/util.h"
+#include "../wallet.h"
 #include "usbhmsc.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -20,7 +25,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
+#include <wally_descriptor.h>
 #include <wally_psbt.h>
 
 gui_activity_t* make_usb_connect_activity(const char* title);
@@ -532,7 +539,7 @@ static bool handle_ota_reply(const uint8_t* msg, const size_t len, void* ctx)
 
     CborParser parser;
     CborValue message;
-    const CborError cberr = cbor_parser_init(msg, len, CborValidateBasic, &parser, &message);
+    const CborError cberr = cbor_parser_init(msg, len, 0, &parser, &message);
     if (cberr != CborNoError || !rpc_message_valid(&message)) {
         JADE_LOGE("Invalid cbor message");
     } else {
@@ -592,15 +599,13 @@ static void usbmode_ota_worker(void* ctx)
     ctx_data->file_to_flash = NULL;
 
     // Loop passing our ota data to the ota task
-    bool failed_wait = false;
     while (ctx_data->data_to_send) {
         if (msgs_sent > 1) {
             // Wait for the n-1th message that we sent. This allows this task to stay
             // ahead of the ota task so that both can work in parallel.
             const bool wait_forever = msgs_sent <= 4;
             bool ok = false;
-            failed_wait = !wait_for_ota_replies(1, wait_forever, &ok);
-            if (failed_wait) {
+            if (!wait_for_ota_replies(1, wait_forever, &ok)) {
                 // Failed to get a reply: The ota task is dead/not responding
                 break;
             }
@@ -633,23 +638,22 @@ static void usbmode_ota_worker(void* ctx)
     /* const bool all_data_sent = ctx_data->data_to_send == 0; */
     free(ctx_data);
 
-    if (!failed_wait) {
-        // Either all data was sent or an error occurred. Send "ota_complete"
-        // for both cases.
-        // TODO: add support for "ota_cancel" for the failure case.
-        post_ota_complete_message(SOURCE_INTERNAL);
-        ++msgs_sent;
-        bool ok = false;
+    // Send "ota_complete" in all cases, so ota_process() does not get stuck
+    // in its message read loop. ota_process() will detect incomplete and/or
+    // corrupted data and allow the user to re-try.
+    //
+    // TODO: add support for "ota_cancel" for the failure case.
+    post_ota_complete_message(SOURCE_INTERNAL);
+    ++msgs_sent;
+    {
         // Wait for any outstanding ota replies
+        bool ok = false;
         const bool wait_forever = false;
-        failed_wait = !wait_for_ota_replies(msgs_sent - msgs_waited, wait_forever, &ok);
+        wait_for_ota_replies(msgs_sent - msgs_waited, wait_forever, &ok);
     }
 
     // If the ota succeeded the device will be rebooted soon.
-    // If the ota failed, the user can try again, unless we failed to
-    // wait in which case the main task is probably stuck and the device
-    // will need to be rebooted.
-    // TODO: Notify the user in the failed_wait == true case.
+    // If the ota failed, the user can try again.
 
     // After ota try to unmount usbstorage and restart normal serial comms
     JADE_LOGI("OTA complete: stopping usb");

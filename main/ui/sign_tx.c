@@ -45,6 +45,8 @@ static uint32_t get_asset_scale_factor(const asset_info_t* asset_info)
 static bool display_output(
     const struct wally_tx_output* outputs, const output_info_t* output_info, const size_t i, const bool show_scriptless)
 {
+    JADE_ASSERT(outputs);
+
     if (!show_scriptless && !outputs[i].script) {
         // Hide outputs with no script
         return false;
@@ -70,6 +72,8 @@ static bool display_output(
 static uint32_t displayable_outputs(
     const struct wally_tx* tx, const output_info_t* output_info, const bool show_scriptless)
 {
+    JADE_ASSERT(tx && tx->num_outputs <= UINT32_MAX);
+
     uint32_t nDisplayable = 0;
     for (size_t i = 0; i < tx->num_outputs; ++i) {
         if (display_output(tx->outputs, output_info, i, show_scriptless)) {
@@ -78,7 +82,7 @@ static uint32_t displayable_outputs(
     }
 
     // If we would hide all outputs, then don't hide any
-    return nDisplayable > 0 ? nDisplayable : tx->num_outputs;
+    return nDisplayable > 0 ? nDisplayable : (uint32_t)tx->num_outputs;
 }
 
 // Lookup the passed asset-id in the asset data, and return the asset-id, issuer,
@@ -131,7 +135,7 @@ static bool get_asset_display_info(const network_t network_id, const asset_info_
         JADE_ASSERT(ret > 0 && ret < amount_len);
 
         // Ticker
-        ret = snprintf(ticker, ticker_len, "%.*s", asset_info.ticker_len, asset_info.ticker);
+        ret = snprintf(ticker, ticker_len, "%.*s", (int)asset_info.ticker_len, asset_info.ticker);
         JADE_ASSERT(ret > 0 && ret < ticker_len);
     } else {
         JADE_LOGW("Asset data for asset-id: '%s' not found!", asset_id_hex);
@@ -537,7 +541,7 @@ bool show_elements_transaction_outputs_activity(const network_t network_id, cons
         char issuer[128];
         char asset_id_hex[2 * ASSET_TAG_LEN + 1];
         char amount[32];
-        char ticker[8]; // Registry tickers are max 5char ... but testnet policy asset ticker is 'L-TEST' ...
+        char ticker[ASSET_TICKER_MAX_LEN + 1];
         const bool have_asset_info = get_asset_display_info(network_id, assets, num_assets, output_info[i].asset_id,
             sizeof(output_info[i].asset_id), output_info[i].value, issuer, sizeof(issuer), asset_id_hex,
             sizeof(asset_id_hex), amount, sizeof(amount), ticker, sizeof(ticker));
@@ -597,7 +601,7 @@ static bool show_elements_asset_summary_activity(const char* title, const char* 
         char issuer[128];
         char asset_id_hex[2 * ASSET_TAG_LEN + 1];
         char amount[32];
-        char ticker[8]; // Registry tickers are max 5char ... but testnet policy asset ticker is 'L-TEST' ...
+        char ticker[ASSET_TICKER_MAX_LEN + 1];
         const bool have_asset_info = get_asset_display_info(network_id, assets, num_assets, sums[i].asset_id,
             sizeof(sums[i].asset_id), sums[i].value, issuer, sizeof(issuer), asset_id_hex, sizeof(asset_id_hex), amount,
             sizeof(amount), ticker, sizeof(ticker));
@@ -692,7 +696,7 @@ static gui_activity_t* make_final_confirmation_activities(const char* title, con
 
     // Buttons - Cancel and Confirm
     btn_data_t hdrbtns[] = { { .txt = "X", .font = GUI_TITLE_FONT, .ev_id = BTN_SIGNTX_REJECT },
-        { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_SIGNTX_ACCEPT } };
+        { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_SIGNTX_ACCEPT /**/ BTN_IS_CRITICAL } };
 
     btn_data_t menubtns[] = {
         { .content = splitfee, .ev_id = BTN_SIGNTX_TICKERAMOUNT },
@@ -778,8 +782,8 @@ bool show_elements_final_confirmation_activity(
     JADE_ASSERT(asset_info.ticker_len);
 
     // Ticker
-    char ticker[8]; // Registry tickers are max 5char ... but testnet policy asset ticker is 'L-TEST' ...
-    int ret = snprintf(ticker, sizeof(ticker), "%.*s", asset_info.ticker_len, asset_info.ticker);
+    char ticker[ASSET_TICKER_MAX_LEN + 1];
+    int ret = snprintf(ticker, sizeof(ticker), "%.*s", (int)asset_info.ticker_len, asset_info.ticker);
     JADE_ASSERT(ret > 0 && ret < sizeof(ticker));
 
     // Fee amount scaled and displayed at relevant precision

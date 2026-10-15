@@ -41,6 +41,10 @@ void get_commitments_process(void* process_ptr)
     // We expect a current message to be present
     ASSERT_CURRENT_MESSAGE(process, "get_commitments");
     ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE(process);
+
+    uint8_t master_blinding_key[HMAC_SHA512_LEN];
+    SENSITIVE_PUSH(master_blinding_key, sizeof(master_blinding_key));
+
     GET_MSG_PARAMS(process);
     const char* errmsg = NULL;
 
@@ -60,7 +64,7 @@ void get_commitments_process(void* process_ptr)
     // hash-prevouts and output index are needed to generate deterministic blinding factors
     size_t hash_prevouts_len = 0;
     const uint8_t* hash_prevouts = NULL;
-    size_t output_index = 0;
+    uint32_t output_index = 0;
     if (!params_hashprevouts_outputindex(&params, &hash_prevouts, &hash_prevouts_len, &output_index, &errmsg)) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);
         goto cleanup;
@@ -75,7 +79,6 @@ void get_commitments_process(void* process_ptr)
     }
 
     // generate the abf (and vbf if necessary)
-    uint8_t master_blinding_key[HMAC_SHA512_LEN];
     if (!params_get_master_blindingkey(&params, master_blinding_key, sizeof(master_blinding_key), &errmsg)) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);
         goto cleanup;
@@ -128,6 +131,6 @@ void get_commitments_process(void* process_ptr)
     JADE_LOGI("Success");
 
 cleanup:
-    return;
+    SENSITIVE_POP(master_blinding_key);
 }
 #endif // AMALGAMATED_BUILD

@@ -166,7 +166,7 @@ extern "C"
     int data_bits;
     int ptr;
 
-    uint8_t data[QUIRC_MAX_PAYLOAD];
+    uint8_t *data; // Must be QUIRC_MAX_PAYLOAD in bytes
   } __attribute__((aligned(8)));
 
   /* Return the number of QR-codes identified in the last processed

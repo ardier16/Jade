@@ -67,6 +67,23 @@ bool is_potential_green_server_path(const uint32_t* path, const size_t path_len,
     return true;
 }
 
+char* strncasestr(const char* str, const char* word, size_t len)
+{
+    if (str && word && len) {
+        const size_t word_len = strlen(word);
+        const char* str_p = str;
+
+        while (*str_p != '\0' && len >= word_len) {
+            if (!strncasecmp(str_p, word, word_len)) {
+                return (char*)str_p;
+            }
+            ++str_p;
+            --len;
+        }
+    }
+    return NULL;
+}
+
 void split_text(const char* src, const size_t len, const size_t wordlen, char* output, const size_t output_len,
     size_t* num_words, size_t* written)
 {

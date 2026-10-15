@@ -108,7 +108,9 @@ static void ensure_boot_flags(void)
 #ifndef CONFIG_IDF_TARGET_ESP32S3
     esp_efuse_disable_basic_rom_console();
 #endif
+#ifndef CONFIG_JADE_FAKEPROD
     esp_efuse_disable_rom_download_mode();
+#endif
 #endif
 }
 
@@ -179,10 +181,6 @@ static void boot_process(void)
         JADE_ABORT();
     }
 
-    if (!serial_init(serial_handle)) {
-        JADE_ABORT();
-    }
-
     // Create the default event loop here as multiple components depend on it
     JADE_ASSERT(esp_event_loop_create_default() == ESP_OK);
 
@@ -220,7 +218,12 @@ static void boot_process(void)
     // Idletimer init decides whether to power the screen or not based on whether this
     // is a soft restart due to inactivity.
     // NOTE: input methods use idle-timer, so are dependent.
+    //       wire.c methods also use idle-timer, so are dependent.
     idletimer_init();
+
+    if (!serial_init(serial_handle)) {
+        JADE_ABORT();
+    }
 
     // Initialise input devices as appropriate for the hw
     input_init();
@@ -254,7 +257,7 @@ static void boot_process(void)
 
 #if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_ETH_USE_OPENETH)
     size_t counter = 0;
-    jade_camera_process_images(&rnd_camera_feed, &counter, false, false, NULL, QR_GUIDE_HIDE, NULL, NULL);
+    jade_camera_process_images(&rnd_camera_feed, &counter, false, false, NULL, QR_GUIDE_HIDE, NULL, NULL, NULL);
 #endif
 
     jade_wally_init();

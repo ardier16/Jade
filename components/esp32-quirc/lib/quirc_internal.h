@@ -43,7 +43,7 @@ typedef uint16_t quirc_pixel_t;
 #include <esp_heap_caps.h>
 static inline void* ps_malloc(const size_t size)
 {
-  return heap_caps_malloc_prefer(size, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
+  return heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT);
 }
 static inline void* d_malloc(const size_t size)
 {

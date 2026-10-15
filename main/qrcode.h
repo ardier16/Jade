@@ -84,7 +84,7 @@ bool qrcode_getModule(QRCode* qrcode, uint8_t x, uint8_t y);
 
 size_t qrcode_get_icon_data_size(uint16_t width, uint16_t height);
 void qrcode_toIcon(QRCode* qrcode, Icon* icon, uint8_t scale);
-void qrcode_freeIcon(Icon* icon);
+void qrcode_freeIconData(Icon* icon);
 
 // Blockstream added function
 // NOTE: only supports v1 and v2 qrcodes atm.

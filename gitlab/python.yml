@@ -16,5 +16,5 @@ build_jadepy_wheel:
     GIT_SUBMODULE_STRATEGY: none
   script:
     - cd $CI_PROJECT_DIR
-    - pip install build
+    - pip install --require-hashes -r requirements.txt
     - python -m build

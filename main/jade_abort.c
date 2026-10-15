@@ -11,18 +11,23 @@
 
 extern void __real_abort(void);
 
+// Only try to show the error message once - if showing it fails and aborts
+// again, go straight on to the real abort rather than looping forever
+static bool abort_display_attempted = false;
+
 void jade_abort(const char* file, const int line_n)
 {
     // Clear senstitive data
     keychain_clear();
     sensitive_clear_stack();
 
-    if (gui_initialized()) {
+    if (!abort_display_attempted && gui_initialized() && !gui_is_gui_task()) {
+        abort_display_attempted = true;
         char details[128];
         const int ret = snprintf(details, sizeof(details), "%s:%d", file, line_n);
-        const char* message[] = { "Internal error", "", "Restarting" };
+        const char* message[3] = { "Internal error", "", "Restarting" };
         if (ret > 0 && ret < sizeof(details)) {
-            message[2] = details;
+            message[1] = details;
         }
         display_message_activity(message, 3);
     }

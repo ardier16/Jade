@@ -6,9 +6,9 @@
 #define MALLOC_CAP_INTERNAL 4
 
 static inline void* heap_caps_malloc(size_t size, uint32_t caps) { return malloc(size); }
-static inline void* heap_caps_malloc_prefer(size_t size, uint32_t caps, ...) { return malloc(size); }
+static inline void* heap_caps_malloc_prefer(size_t size, size_t num_caps, ...) { return malloc(size); }
 static inline void* heap_caps_calloc(size_t num_elems, size_t size, uint32_t caps) { return calloc(num_elems, size); }
-static inline void* heap_caps_calloc_prefer(size_t num_elems, size_t size, uint32_t caps, ...)
+static inline void* heap_caps_calloc_prefer(size_t num_elems, size_t size, size_t num_caps, ...)
 {
     return calloc(num_elems, size);
 }

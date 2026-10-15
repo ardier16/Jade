@@ -1,7 +1,10 @@
 #ifndef AMALGAMATED_BUILD
+#include <string.h>
+
 #include "../button_events.h"
 #include "../display.h"
 #include "../jade_assert.h"
+#include "../storage.h"
 #include "../ui.h"
 #include "process.h"
 #include "utils/malloc_ext.h"
@@ -47,6 +50,20 @@ static gui_view_node_t* make_home_screen_panel_item(const color_t color, home_me
     return item;
 }
 
+static const char* get_home_screen_title(const char* device_name)
+{
+    // Match the status-bar title column width from make_status_bar().
+    const int title_width = (CONFIG_DISPLAY_WIDTH * HOME_SCREEN_STATUS_BAR_TITLE_WIDTH_PERCENT) / 100;
+
+    display_set_font(GUI_TITLE_FONT);
+    if (display_get_string_width(device_name) <= title_width || strncmp(device_name, "Jade ", strlen("Jade ")) != 0) {
+        return device_name;
+    }
+
+    // Remove "Jade " prefix to allow the device ID to be shown.
+    return device_name + strlen("Jade ");
+}
+
 gui_activity_t* make_home_screen_activity(const char* device_name, const char* firmware_version,
     home_menu_entry_t* selected_entry, home_menu_entry_t* next_entry, gui_view_node_t** status_light,
     gui_view_node_t** status_text, gui_view_node_t** label)
@@ -62,7 +79,7 @@ gui_activity_t* make_home_screen_activity(const char* device_name, const char* f
     // NOTE: The home screen is created as an 'unmanaged' activity as
     // its lifetime is same as that of the entire application
     gui_activity_t* act = NULL;
-    gui_make_activity_ex(&act, true, device_name, false);
+    gui_make_activity_ex(&act, true, get_home_screen_title(device_name), false);
     JADE_ASSERT(act);
 
     gui_view_node_t* node;
@@ -83,6 +100,11 @@ gui_activity_t* make_home_screen_activity(const char* device_name, const char* f
     node = make_home_screen_panel_item(gui_get_highlight_color(), selected_entry);
     gui_set_borders(node, TFT_BLACK, 4, GUI_BORDER_RIGHT);
     gui_set_parent(node, hsplit);
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    // A tap on the selected item opens it, a tap on the next item moves on
+    gui_activity_set_touch_nav_area(act, hsplit);
+    gui_activity_set_touch_nav_select_area(act, node);
+#endif
 
     // Next item
     node = make_home_screen_panel_item(GUI_BLOCKSTREAM_UNHIGHTLIGHTED_DEFAULT, next_entry);
@@ -396,13 +418,24 @@ gui_activity_t* make_display_settings_activity(void)
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_DISPLAY_EXIT },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
+#if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_BOARD_TYPE_JADE_ANY)
+    // The label doubles as the state indicator - shows 'Camera Rotated' while
+    // the extra 180-degree camera rotation is active
+    const char* const camera_btn_label
+        = (storage_get_gui_flags() & GUI_FLAGS_CAMERA_ROTATED) ? "Camera Rotated" : "Rotate Camera";
+#endif
+
     // NOTE: Only boards listed here have brightness controls
     // NOTE: Jade v1.1's do not support Flip Orientation because of issues with screen offsets
 #if defined(CONFIG_BOARD_TYPE_JADE_V2_ANY) || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2)                                 \
-    || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY) || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
+    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY)                           \
+    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
     btn_data_t menubtns[]
         = { { .txt = "Display Brightness", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_BRIGHTNESS },
               { .txt = "Flip Orientation", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_ORIENTATION },
+#if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_BOARD_TYPE_JADE_ANY)
+              { .txt = camera_btn_label, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_CAMERA_ROTATE },
+#endif
               { .txt = "Theme", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_THEME } };
 #elif defined(CONFIG_BOARD_TYPE_JADE_V1_1)
     btn_data_t menubtns[]
@@ -413,6 +446,9 @@ gui_activity_t* make_display_settings_activity(void)
 #else // DIY units
     btn_data_t menubtns[]
         = { { .txt = "Flip Orientation", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_ORIENTATION },
+#if defined(CONFIG_HAS_CAMERA)
+              { .txt = camera_btn_label, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_CAMERA_ROTATE },
+#endif
               { .txt = "Theme", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_THEME } };
 #endif
 

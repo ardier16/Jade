@@ -46,6 +46,8 @@ class JadeClient:
     def __enter__(self):
         if self.device == 'libjade':
             self.jade = JadeAPI.create_libjade()
+        elif self.device.startswith('ble:'):
+            self.jade = JadeAPI.create_ble(serial_number=self.device[4:])
         else:
             self.jade = JadeAPI.create_serial(device=self.device)
         self.jade.connect()
@@ -94,7 +96,8 @@ class Bip32PathParamType(click.ParamType):
 
 @click.group()
 @click.option('--verbose', '-v', is_flag=True)
-@click.option('--device', default='tcp:localhost:30121', help='Device address to connect to')
+@click.option('--device', default='tcp:localhost:30121',
+              help='Device address to connect to. Use ble:id for BLE')
 @click.pass_context
 def cli(ctx, verbose, device):
     ctx.ensure_object(dict)
@@ -244,6 +247,26 @@ def capture_image_data(jade, filename, check_qr):
     with open(filename, 'wb') as f:
         f.write(result)
         click.echo(f'Image data written to {filename}')
+
+
+@cli.command()
+@click.argument('mnemonic')
+@click.option('--passphrase', default=None)
+@click.option('--temporary', type=bool, default=False)
+@with_jade_client
+def debug_set_mnemonic(jade, mnemonic, passphrase, temporary):
+    # NOTE: Requires a DEBUG firmware. Should not be used with a real mnemonic
+    # or real funds.
+    result = jade.set_mnemonic(mnemonic, passphrase, temporary)
+    click.echo(result)
+
+
+@cli.command()
+@with_jade_client
+def drain(jade):
+    while (True):
+        jade.drain()
+        time.sleep(1)
 
 
 if __name__ == "__main__":

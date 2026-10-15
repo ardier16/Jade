@@ -3,6 +3,7 @@
 
 #include "../button_events.h"
 #include "../jade_assert.h"
+#include "../sensitive.h"
 #include "../ui.h"
 
 #define NUM_KEYBOARD_ROWS 3
@@ -88,6 +89,27 @@ gui_activity_t* make_restore_mnemonic_activity(const bool temporary_restore)
     return act;
 }
 
+gui_activity_t* make_restore_mnemonic_method_activity(const size_t nwords)
+{
+    JADE_ASSERT(nwords == 12 || nwords == 24);
+
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_RESTORE_MNEMONIC },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    const int word_ev_id = nwords == 12 ? BTN_RESTORE_MNEMONIC_WORDS_12 : BTN_RESTORE_MNEMONIC_WORDS_24;
+    const int idx_ev_id = nwords == 12 ? BTN_RESTORE_MNEMONIC_WORD_NUMBERS_12 : BTN_RESTORE_MNEMONIC_WORD_NUMBERS_24;
+
+    btn_data_t menubtns[] = { // word
+        { .txt = "Word", .font = GUI_DEFAULT_FONT, .ev_id = word_ev_id },
+        // index
+        { .txt = "Index Number", .font = GUI_DEFAULT_FONT, .ev_id = idx_ev_id }
+    };
+
+    gui_activity_t* const act = make_menu_activity("Entry Method", hdrbtns, 2, menubtns, 2);
+    gui_set_activity_initial_selection(menubtns[0].btn);
+    return act;
+}
+
 gui_activity_t* make_bip85_mnemonic_words_activity(void)
 {
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_BIP85_EXIT },
@@ -135,6 +157,7 @@ static void make_show_new_mnemonic_page(
     gui_set_parent(vsplit, parent);
 
     char prefixed_word[16];
+    SENSITIVE_PUSH(prefixed_word, sizeof(prefixed_word));
     for (int irow = 0; irow < 4; ++irow) {
         // index-prefixed word, eg. "1:  river"
         const int ret = snprintf(prefixed_word, sizeof(prefixed_word), "%2u:  %s", first_index + irow + 1, words[irow]);
@@ -145,6 +168,7 @@ static void make_show_new_mnemonic_page(
         gui_set_align(word, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
         gui_set_parent(word, vsplit);
     }
+    SENSITIVE_POP(prefixed_word);
 
     // Set the intially selected item to the next/verify (ie. the last) button
     gui_set_activity_initial_selection(hdrbtns[1].btn);

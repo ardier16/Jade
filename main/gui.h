@@ -43,6 +43,7 @@ extern uint8_t GUI_DEFAULT_FONT;
 
 // Whether to use a deep status bar on the home screen, better suited to larger displays
 #define HOME_SCREEN_DEEP_STATUS_BAR (CONFIG_DISPLAY_HEIGHT >= 170)
+#define HOME_SCREEN_STATUS_BAR_TITLE_WIDTH_PERCENT (HOME_SCREEN_DEEP_STATUS_BAR ? 40 : 57)
 
 // Fill all the remaining space in an {h,v}split
 #define GUI_SPLIT_FILL_REMAINING 0xFF
@@ -171,24 +172,6 @@ typedef struct activity_event {
     struct activity_event* next;
 } activity_event_t;
 
-// Values calculated by the render that can be useful later
-struct __attribute__((__packed__)) view_node_render_data {
-    dispWin_t original_constraints;
-
-    // area of the node *after* margins, padding and borders have been applied
-    dispWin_t padded_constraints;
-
-    // used as a cache for translated strings
-    const char* resolved_text;
-    size_t resolved_text_length;
-
-    // is this the first rendering of the node?
-    bool is_first_time;
-
-    // depth of the node in the tree of this activity
-    uint8_t depth;
-};
-
 // Data for a {v,h}split
 struct view_node_split_data {
     // type of split
@@ -261,6 +244,10 @@ struct view_node_button_data {
     uint32_t click_event_id;
     // args passed to the event handler as event_data when the button is clicked
     void* args;
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    // if set, direct touch requires a long press to activate the button
+    bool is_critical;
+#endif
 };
 
 enum __attribute__((__packed__)) icon_node_kind { ICON_PLAIN, ICON_QR };
@@ -309,7 +296,17 @@ struct view_node_qrguide_data {
 };
 
 // Possible types of a view_node
-enum __attribute__((__packed__)) view_node_kind { HSPLIT, VSPLIT, TEXT, FILL, BUTTON, ICON, PICTURE, QRGUIDE };
+enum __attribute__((__packed__)) view_node_kind {
+    HSPLIT,
+    VSPLIT,
+    TEXT,
+    FILL,
+    BUTTON,
+    ICON,
+    PICTURE,
+    STATIC_PICTURE,
+    QRGUIDE
+};
 
 typedef struct wait_data {
     wait_event_data_t* event_data;
@@ -317,7 +314,7 @@ typedef struct wait_data {
 } wait_data_t;
 
 // Struct that contains an "activity", basically a tree of nodes that can be rendered on screen
-struct __attribute__((__packed__)) gui_activity_t {
+struct gui_activity_t {
     // "window" used by the tft library to paint on screen
     dispWin_t win;
     // root view_node
@@ -337,27 +334,43 @@ struct __attribute__((__packed__)) gui_activity_t {
     // linked list of wait_event_data structures associated with this activity
     wait_data_t* wait_data_items;
 
-    // add the status bar on top of this activity (top 24px)
-    bool status_bar;
     // title shown in the status bar (if enabled)
     char* title;
+
+    // add the status bar on top of this activity (top 24px)
+    bool status_bar;
+
     // should that cursor "wrap around" when you reach one end?
     bool selectables_wrap;
+
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    // Direct touch: node whose taps act as prev/select/next, if any, and
+    // the node in it that acts as 'select' (default: the middle third)
+    gui_view_node_t* touch_nav_area;
+    gui_view_node_t* touch_nav_select_area;
+#endif
 };
 
-// Optional callback called when a view_node is destructed. Basically a custom destructor
-typedef void (*free_callback_t)(void*);
-
 // Generic struct representing a node in the view tree
-struct __attribute__((__packed__)) gui_view_node_t {
-    // stuff set by the renderer
-    struct view_node_render_data render_data;
+struct gui_view_node_t {
+    // renderer: original size constraints
+    dispWin_t constraints;
+    // renderer: constraints *after* margins/padding/borders have been applied
+    dispWin_t padded_constraints;
+    // renderer: true if this is the first rendering of the node
+    bool is_first_render;
 
-    // NULL for the root node
-    gui_view_node_t* parent;
+    // is this node currently selected (highlighted)?
+    bool is_selected;
+
+    // is this node active (highlightable)?
+    bool is_active;
 
     // type of node
     enum view_node_kind kind;
+
+    // NULL for the root node
+    gui_view_node_t* parent;
 
     // activity that contains this node
     gui_activity_t* activity;
@@ -369,32 +382,11 @@ struct __attribute__((__packed__)) gui_view_node_t {
     // borders if set/applicable
     gui_border_t* borders;
 
-    // all the possible data-types
-    union {
-        void* data;
-
-        struct view_node_split_data* split;
-        struct view_node_text_data* text;
-        struct view_node_fill_data* fill;
-        struct view_node_button_data* button;
-        struct view_node_icon_data* icon;
-        struct view_node_picture_data* picture;
-        struct view_node_qrguide_data* qrguide;
-    };
-    // (optional) destructor
-    free_callback_t free_callback;
-
     // ptr to the first child of the list
     gui_view_node_t* child;
 
     // next sibling in the linked list
     gui_view_node_t* sibling;
-
-    // is this node currently selected (highlighted)?
-    bool is_selected;
-
-    // is this node active (highlitable)?
-    bool is_active;
 };
 
 // Structs to facilitate chaining screens
@@ -424,31 +416,39 @@ bool gui_set_flipped_orientation(bool flipped_orientation);
 
 void gui_init(TaskHandle_t* gui_h, bool create_event_loop);
 void gui_stop(void);
+// Returns true if the GUI has been initialized
 bool gui_initialized(void);
+// Returns true if the current task is the internal GUI task
+bool gui_is_gui_task(void);
 
 void gui_make_activity_ex(gui_activity_t** ppact, const bool has_status_bar, const char* title, const bool managed);
 gui_activity_t* gui_make_activity(void);
 
 void gui_set_parent(gui_view_node_t* child, gui_view_node_t* parent);
 void gui_chain_activities(const link_activity_t* link_act, linked_activities_info_t* pActInfo);
-void gui_make_hsplit(gui_view_node_t** ptr, enum gui_split_type kind, uint8_t parts, ...);
-void gui_make_vsplit(gui_view_node_t** ptr, enum gui_split_type kind, uint8_t parts, ...);
+void gui_make_hsplit(gui_view_node_t** ptr, enum gui_split_type kind, int parts, ...);
+void gui_make_vsplit(gui_view_node_t** ptr, enum gui_split_type kind, int parts, ...);
 void gui_make_button(gui_view_node_t** ptr, color_t color, color_t selected_color, uint32_t event_id, void* args);
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+void gui_set_button_critical(gui_view_node_t* node);
+#endif
 void gui_make_fill(gui_view_node_t** ptr, color_t color, enum fill_node_kind fill_type, gui_view_node_t* parent);
 void gui_make_text(gui_view_node_t** ptr, const char* text, color_t color);
 void gui_make_text_font(gui_view_node_t** ptr, const char* text, color_t color, uint32_t font);
 void gui_make_icon(gui_view_node_t** ptr, const Icon* icon, color_t color, const color_t* bg_color);
+// NOTE: takes ownership of 'icons'
+void gui_make_icon_animation(gui_view_node_t** ptr, gui_view_node_t* parent, color_t color, const color_t* bg_color,
+    Icon* icons, const size_t num_icons, const size_t frames_per_icon);
 void gui_make_picture(gui_view_node_t** ptr, const Picture* picture);
 void gui_make_qrguide(gui_view_node_t** ptr, color_t color);
-void gui_set_margins(gui_view_node_t* node, uint32_t sides, ...);
-void gui_set_padding(gui_view_node_t* node, uint32_t sides, ...);
+void gui_set_margins(gui_view_node_t* node, int sides, ...);
+void gui_set_padding(gui_view_node_t* node, int sides, ...);
 void gui_set_borders(gui_view_node_t* node, color_t color, uint16_t thickness, uint8_t borders);
 void gui_set_borders_selected_color(gui_view_node_t* node, color_t selected_color);
 void gui_set_borders_inactive_color(gui_view_node_t* node, color_t inactive_color);
 void gui_set_colors(gui_view_node_t* node, color_t color, color_t selected_color);
 void gui_set_color(gui_view_node_t* node, color_t color);
 void gui_set_align(gui_view_node_t* node, enum gui_horizontal_align halign, enum gui_vertical_align valign);
-void gui_set_icon_animation(gui_view_node_t* node, Icon* icons, size_t num_icons, size_t frames_per_icon);
 void gui_set_icon_to_qr(gui_view_node_t* node);
 void gui_set_text_scroll(gui_view_node_t* node, color_t background_color);
 void gui_set_text_scroll_selected(
@@ -459,11 +459,14 @@ void gui_set_text_default_font(gui_view_node_t* node);
 void gui_update_text(gui_view_node_t* node, const char* text);
 void gui_update_icon(gui_view_node_t* node, Icon icon, bool repaint_parent);
 void gui_update_picture(gui_view_node_t* node, const Picture* picture, bool repaint_parent);
-void gui_clear_picture(gui_view_node_t* node);
 void gui_repaint(gui_view_node_t* node);
 
 void gui_set_current_activity_ex(gui_activity_t* new_current, bool free_managed_activities);
 void gui_set_current_activity(gui_activity_t* new_current);
+
+// Destroy an activity we are finished displaying and switch to prev_act.
+// Waits for the activity to be destroyed, to ensure that all memory it used is freed.
+void gui_destroy_current_activity(gui_activity_t* current_act, gui_activity_t* prev_act);
 
 wait_event_data_t* gui_activity_make_wait_event_data(gui_activity_t* activity);
 void gui_activity_register_event(
@@ -486,5 +489,10 @@ void gui_wheel_click(void);
 void gui_front_click(void);
 void gui_next(void);
 void gui_prev(void);
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+void gui_touch_update(uint16_t x, uint16_t y, bool is_pressed);
+void gui_activity_set_touch_nav_area(gui_activity_t* activity, gui_view_node_t* area);
+void gui_activity_set_touch_nav_select_area(gui_activity_t* activity, gui_view_node_t* select_area);
+#endif
 
 #endif /* GUI_H_ */

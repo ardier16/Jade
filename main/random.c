@@ -5,6 +5,8 @@
 #include "power.h"
 #include "sensitive.h"
 #include <bootloader_random.h>
+#include <esp_app_desc.h>
+#include <esp_chip_info.h>
 #include <esp_random.h>
 #include <esp_system.h>
 #include <esp_timer.h>
@@ -24,6 +26,10 @@
 #include <stdio.h>
 
 #define STRENGTHEN_MILLISECONDS 1000
+
+extern esp_app_desc_t running_app_info;
+extern esp_chip_info_t chip_info;
+extern uint8_t macid[6];
 
 // these functions rely on cleanup being available
 #define hasherstart(ctx)                                                                                               \
@@ -67,7 +73,7 @@ static uint16_t esp32_get_temperature(void)
 }
 #endif
 
-// returns up to 32 bytes of randomness (optional), takes optionallly extra entropy
+// returns up to 32 bytes of randomness (optional), optionally adds extra entropy
 static void get_random_internal(uint8_t* bytes_out, const size_t len, const uint8_t* additional, const size_t addlen)
 {
     JADE_ASSERT(rnd_mutex);
@@ -107,7 +113,8 @@ static void get_random_internal(uint8_t* bytes_out, const size_t len, const uint
 
     ++rnd_counter;
 
-    // add some data from the stack
+    // add some data from the stack (this is technically UB and unlikely
+    // to add much entropy; the idiom is from core).
     add_bytes_to_hasher(ctx, buf, sizeof(buf));
 
     // esp_fill_random is considered a prng when
@@ -157,6 +164,7 @@ void get_random(void* bytes_out, const size_t len)
 
 uint8_t get_uniform_random_byte(const uint8_t upper_bound)
 {
+    JADE_ASSERT(upper_bound != 0);
     // Algorithm from GDK / from the PCG family of random generators
     const uint8_t lower_threshold = (uint8_t)-upper_bound % upper_bound;
     while (true) {
@@ -182,7 +190,7 @@ static void random_sanity_check(void)
     uint64_t start = xthal_get_ccount();
 
     // This does not measure the quality of randomness, but it does test that
-    // get_random overwrites all 64 bytes of the output given a maximum
+    // get_random overwrites all 32 bytes of the output given a maximum
     // number of tries.
     static const ssize_t MAX_TRIES = 1024;
     uint8_t data[SHA256_LEN];
@@ -234,6 +242,12 @@ static void strengthen(const int64_t ms)
 
     hasherstart(ctx_outer);
 
+    // Mix in the efuse mac, chip info and firmware/security version
+    // (previously populated by validate_running_image())
+    add_bytes_to_hasher(ctx_outer, macid, sizeof(macid));
+    add_bytes_to_hasher(ctx_outer, &chip_info, sizeof(chip_info));
+    add_bytes_to_hasher(ctx_outer, &running_app_info, sizeof(running_app_info));
+
     // Note: esp_timer_get_time() returns in usecs
     const int64_t stop = esp_timer_get_time() + (1000 * ms);
 
@@ -273,7 +287,16 @@ void random_start_collecting(void)
     // BLE or I2S peripherals (camera?) working later.
 
     bootloader_random_enable();
-    esp_fill_random(entropy_state, sizeof(entropy_state));
+    // Populate our initial entropy with 32 bit reads separated by 1 ms delay.
+    // 32 bits is the size of the HW RNG state, 1ms delay gives ~50x more time
+    // for entropy refeeding than esp_fill_random() when reading, and also
+    // allows introducing scheduler jitter between reads.
+    JADE_STATIC_ASSERT(sizeof(entropy_state) % sizeof(uint32_t) == 0);
+    for (size_t i = 0; i < sizeof(entropy_state) / sizeof(uint32_t); ++i) {
+        uint32_t word = esp_random();
+        memcpy(entropy_state + i * sizeof(uint32_t), &word, sizeof(word));
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+    }
     bootloader_random_disable();
 
     JADE_ASSERT(!rnd_mutex);
@@ -286,4 +309,10 @@ void random_full_initialization(void)
     strengthen(STRENGTHEN_MILLISECONDS);
     random_sanity_check();
 }
+
+#undef hasherstart
+#undef hasherfinish
+#undef call_uint16_t_func_to_hasher
+#undef add_bytes_to_hasher
+#undef STRENGTHEN_MILLISECONDS
 #endif // AMALGAMATED_BUILD

@@ -130,9 +130,10 @@ git repository, run the following commands:
 $ export ESP_IDF_BRANCH=$(grep ESP_IDF_BRANCH Dockerfile | sed 's/.*=//g')
 $ mkdir ~/esp
 $ cd ~/esp
-$ git clone --recursive https://github.com/espressif/esp-idf.git
+$ git clone https://github.com/espressif/esp-idf.git
 $ cd esp-idf
 $ git checkout $ESP_IDF_BRANCH
+$ git submodule update --init --recursive
 $ ./install.sh --enable-gdbgui esp32 esp32s3
 $ python ./tools/idf_tools.py install qemu-xtensa
 ```
@@ -240,8 +241,10 @@ $ virtualenv -p python3 venv3
 $ source venv3/bin/activate
 $ pip install -r requirements.txt
 $ pip install -r pinserver/requirements.txt
+$ pip install pytest
 $ # Run the tests
 $ python test_jade.py --serialport $JADESERIALPORT
+$ pytest -v --device $JADESERIALPORT tests/
 $ # Cleanup
 $ deactivate
 ```

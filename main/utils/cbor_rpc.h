@@ -29,6 +29,10 @@
 // Plenty for green wallets, bip44 etc. with plenty to spare.
 #define MAX_PATH_LEN 16
 
+// Initialize a parser for untrusted cbor input
+WARN_UNUSED_RESULT bool rpc_untrusted_parser_init(
+    const uint8_t* cbor, size_t cbor_len, CborParser* parser, CborValue* result);
+
 WARN_UNUSED_RESULT bool cbor_print_error_for(const char* id, int code, const char* message, const uint8_t* data,
     size_t datalen, uint8_t* buffer, size_t buffer_len, size_t* towrite);
 
@@ -43,7 +47,6 @@ bool rpc_is_method(const CborValue* value, const char* method);
 // Typed/checked getters for various nodes/data-types.
 // _or() variants accept and return a default value if the field is not present.
 bool rpc_has_field_data(const char* field, const CborValue* value);
-void rpc_get_raw_string_ptr(const CborValue* value, const char** data, size_t* size);
 void rpc_get_string_ptr(const char* field, const CborValue* value, const char** data, size_t* size);
 void rpc_get_string(const char* field, size_t max, const CborValue* value, char* data, size_t* written);
 void rpc_get_raw_bytes_ptr(const CborValue* value, const uint8_t** data, size_t* size);
@@ -51,8 +54,8 @@ void rpc_get_bytes_ptr(const char* field, const CborValue* value, const uint8_t*
 void rpc_get_bytes(const char* field, size_t max, const CborValue* value, uint8_t* data, size_t* written);
 
 WARN_UNUSED_RESULT bool rpc_get_n_bytes(const char* field, const CborValue* value, size_t expected_size, uint8_t* data);
-WARN_UNUSED_RESULT bool rpc_get_sizet(const char* field, const CborValue* value, size_t* res);
-WARN_UNUSED_RESULT size_t rpc_get_sizet_or(const char* field, const CborValue* value, size_t default_value);
+WARN_UNUSED_RESULT bool rpc_get_uint32(const char* field, const CborValue* value, uint32_t* res);
+WARN_UNUSED_RESULT uint32_t rpc_get_uint32_or(const char* field, const CborValue* value, uint32_t default_value);
 WARN_UNUSED_RESULT bool rpc_get_uint64(const char* field, const CborValue* value, uint64_t* res);
 WARN_UNUSED_RESULT uint64_t rpc_get_uint64_or(const char* field, const CborValue* value, uint64_t default_value);
 WARN_UNUSED_RESULT bool rpc_get_bool(const char* field, const CborValue* value, bool* res);
@@ -63,7 +66,8 @@ WARN_UNUSED_RESULT bool rpc_get_bip32_path(
 WARN_UNUSED_RESULT bool rpc_get_bip32_path_from_value(
     CborValue* value, uint32_t* path_ptr, size_t max_path_len, size_t* written);
 
-WARN_UNUSED_RESULT bool rpc_get_array(const char* field, const CborValue* value, CborValue* result);
+WARN_UNUSED_RESULT bool rpc_get_array(
+    const char* field, const CborValue* value, CborValue* result, size_t* num_array_items);
 WARN_UNUSED_RESULT bool rpc_get_map(const char* field, const CborValue* value, CborValue* result);
 
 // Build response objects

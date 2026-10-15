@@ -104,6 +104,9 @@ static inline void map_string(char* s, int (*fnmap)(int))
 // at the very end.  eg. for "abcdefhij\0" -> "abc\0def\0ghi\0j\0"
 #define SPLIT_TEXT_LEN(len, wordlen) (len + (len / wordlen) + 1)
 
+// Find 'word' in the first 'len' chars of 'str', case-insensitive
+char* strncasestr(const char* str, const char* word, size_t len);
+
 // Helper to copy text from one buffer to another, where the destination has terminators every
 // 'wordlen' chars, eg: "abcdefghi\0" -> "abc\0def\0ghi\0j\0"
 // output 'num_words' is number of 'words' written - eg. 4
@@ -146,5 +149,29 @@ size_t base32_to_bin(const char* b32_str, size_t b32_str_len, uint8_t* bin, size
 // Helper function to convert binary data to a base32 string, padding optional
 WARN_UNUSED_RESULT bool bin_to_base32(
     const uint8_t* bin, size_t bin_len, char* b32_str, size_t b32_str_len, bool use_padding);
+
+// Add two uint64 values, returning false on overflow (leaving '*result' untouched)
+WARN_UNUSED_RESULT static inline bool checked_add_uint64(const uint64_t lhs, const uint64_t rhs, uint64_t* result)
+{
+    JADE_ASSERT(result);
+
+    if (lhs > UINT64_MAX - rhs) {
+        return false;
+    }
+    *result = lhs + rhs;
+    return true;
+}
+
+// Subtract two uint64 values, returning false on underflow (leaving '*result' untouched)
+WARN_UNUSED_RESULT static inline bool checked_sub_uint64(const uint64_t lhs, const uint64_t rhs, uint64_t* result)
+{
+    JADE_ASSERT(result);
+
+    if (rhs > lhs) {
+        return false;
+    }
+    *result = lhs - rhs;
+    return true;
+}
 
 #endif /* UTIL_H_ */

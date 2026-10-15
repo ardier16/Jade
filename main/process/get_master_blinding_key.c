@@ -24,7 +24,7 @@ void get_master_blinding_key_process(void* process_ptr)
 
         CborValue params;
         const CborError cberr = cbor_value_map_find_value(&process->ctx.value, CBOR_RPC_TAG_PARAMS, &params);
-        if (cberr == CborNoError || cbor_value_is_valid(&params) || cbor_value_is_map(&params)) {
+        if (cberr == CborNoError && cbor_value_is_valid(&params) && cbor_value_is_map(&params)) {
             // This field is optional and defaults to false if not present (initialized above)
             only_if_silent = rpc_get_bool_or("only_if_silent", &params, false);
         }

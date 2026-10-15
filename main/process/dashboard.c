@@ -32,14 +32,17 @@
 #endif
 #include <esp_app_desc.h>
 #include <esp_system.h>
+#ifdef CONFIG_HEAP_TRACING
+#include <esp_heap_trace.h>
+#endif
 
 // A genuine production v2 Jade may be awaiting mandatory attestation data
 #if defined(CONFIG_BOARD_TYPE_JADE_V2_ANY) && defined(CONFIG_SECURE_BOOT)                                              \
-    && defined(CONFIG_SECURE_BOOT_V2_ALLOW_EFUSE_RD_DIS)
+    && defined(CONFIG_SECURE_BOOT_V2_ALLOW_EFUSE_RD_DIS) && !defined(CONFIG_JADE_FAKEPROD)
 #include "attestation/attestation.h"
 static inline bool awaiting_attestation_data(void) { return !attestation_initialised(); }
 #else
-// Jade v1.x and diy devices are never awaiting mandatory attestation data
+// Jade v1.x, diy, and fakeprod devices are never awaiting mandatory attestation data
 static inline bool awaiting_attestation_data(void) { return false; }
 #endif
 
@@ -148,14 +151,17 @@ void sign_liquid_tx_process(void* process_ptr);
 void get_bip85_pubkey_process(void* process_ptr);
 void sign_bip85_digests_process(void* process_ptr);
 void show_bip85_bip39_entropy_process(void* process_ptr);
-#ifdef CONFIG_DEBUG_MODE
 void get_bip85_bip39_entropy_process(void* process_ptr);
+#ifdef CONFIG_DEBUG_MODE
 void get_bip85_rsa_entropy_process(void* process_ptr);
 void debug_capture_image_data_process(void* process_ptr);
 void debug_scan_qr_process(void* process_ptr);
 void debug_set_mnemonic_process(void* process_ptr);
 void debug_clean_reset_process(void* process_ptr);
 void debug_handshake(void* process_ptr);
+#ifdef CONFIG_DEBUG_UNATTENDED_CI
+void debug_set_pin_process(void* process_ptr);
+#endif
 bool debug_selfcheck(jade_process_t* process);
 #endif
 void ota_process(void* process_ptr);
@@ -223,7 +229,7 @@ bool select_registered_wallet(const char multisig_names[][NVS_KEY_NAME_MAX_SIZE]
     const char descriptor_names[][NVS_KEY_NAME_MAX_SIZE], size_t num_descriptors, const char** wallet_name_out,
     bool* is_multisig);
 gui_activity_t* make_view_delete_wallet_activity(const char* wallet_name, bool allow_export);
-bool show_multisig_activity(const char* multisig_name, bool is_sorted, size_t threshold, size_t num_signers,
+bool show_multisig_activity(const char* multisig_name, bool is_sorted, uint32_t threshold, size_t num_signers,
     const signer_t* signer_details, size_t num_signer_details, const char* master_blinding_key_hex,
     const uint8_t* wallet_fingerprint, size_t wallet_fingerprint_len, bool initial_confirmation, bool overwriting,
     bool is_valid);
@@ -540,11 +546,13 @@ static void dispatch_message(jade_process_t* process)
         task_function = debug_set_mnemonic_process;
     } else if (IS_METHOD("debug_handshake")) {
         task_function = debug_handshake;
+
+#ifdef CONFIG_DEBUG_UNATTENDED_CI
+    } else if (IS_METHOD("debug_set_pin")) {
+        task_function = debug_set_pin_process;
+#endif
     } else if (IS_METHOD("debug_scan_qr")) {
         task_function = debug_scan_qr_process;
-    } else if (IS_METHOD("get_bip85_bip39_entropy")) {
-        // ATM only exposed for testing purposes
-        task_function = get_bip85_bip39_entropy_process;
     } else if (IS_METHOD("get_bip85_rsa_entropy")) {
         // ATM only exposed for testing purposes
         task_function = get_bip85_rsa_entropy_process;
@@ -605,6 +613,8 @@ static void dispatch_message(jade_process_t* process)
             task_function = get_shared_nonce_process;
         } else if (IS_METHOD("get_bip85_pubkey")) {
             task_function = get_bip85_pubkey_process;
+        } else if (IS_METHOD("get_bip85_bip39_entropy")) {
+            task_function = get_bip85_bip39_entropy_process;
         } else if (IS_METHOD("sign_bip85_digests")) {
             task_function = sign_bip85_digests_process;
         } else if (IS_METHOD("show_bip85_bip39_entropy")) {
@@ -669,7 +679,7 @@ static void offer_jade_reset(void)
 {
     // Run 'Reset Jade?'  confirmation screen and wait for yes/no response
     const char* question[] = { "Reset Jade and erase all", "PIN and wallet data?", "This cannot be undone!" };
-    if (!await_yesno_activity("Factory Reset", question, 3, false, "blkstrm.com/reset")) {
+    if (!await_yesno_activity_critical("Factory Reset", question, 3, false, "blkstrm.com/reset")) {
         // User decided against it
         return;
     }
@@ -1037,7 +1047,7 @@ static bool offer_delete_registered_wallet(const char* name, const bool is_multi
 {
     JADE_ASSERT(name);
 
-    if (!await_yesno_activity("Delete Wallet", &name, 1, false, "blkstrm.com/wallets")) {
+    if (!await_yesno_activity_critical("Delete Wallet", &name, 1, false, "blkstrm.com/wallets")) {
         return false;
     }
 
@@ -1424,7 +1434,7 @@ static bool delete_otp_record(const char* otpname)
 {
     JADE_ASSERT(otpname);
 
-    if (!await_yesno_activity("Delete OTP Record", &otpname, 1, false, "blkstrm.com/otp")) {
+    if (!await_yesno_activity_critical("Delete OTP Record", &otpname, 1, false, "blkstrm.com/otp")) {
         return false;
     }
 
@@ -1709,8 +1719,8 @@ static void handle_view_otps(void)
 
 // NOTE: Only boards listed here have brightness controls
 #if defined(CONFIG_BOARD_TYPE_JADE_V1_1) || defined(CONFIG_BOARD_TYPE_JADE_V2_ANY)                                     \
-    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY)                            \
-    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
+    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)                           \
+    || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY) || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
 static void handle_screen_brightness(void)
 {
     static const char* LABELS[] = { "Min(1)", "Low(2)", "Medium(3)", "High(4)", "Max(5)" };
@@ -1970,6 +1980,16 @@ static void handle_flip_orientation(void)
     }
 }
 
+#if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_BOARD_TYPE_JADE_ANY)
+static void handle_camera_rotate(void)
+{
+    // Toggle the extra 180-degree camera image rotation - takes effect
+    // next time the camera is used
+    const uint8_t gui_flags = storage_get_gui_flags();
+    storage_set_gui_flags(gui_flags ^ GUI_FLAGS_CAMERA_ROTATED);
+}
+#endif
+
 #ifdef CONFIG_HAS_CAMERA
 static void handle_pinserver_scan(void)
 {
@@ -2102,6 +2122,12 @@ static void handle_display_battery_volts(void)
     }
 #elif defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2)
     const uint16_t vbat = power_get_vbat() * 3; // applying voltage divider
+    if (vbat > 0) {
+        const int ret = snprintf(power_status, sizeof(power_status), "%umv", vbat);
+        JADE_ASSERT(ret > 0 && ret < sizeof(power_status));
+    }
+#elif defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)
+    const uint16_t vbat = power_get_vbat(); // pmu adc value already in mv
     if (vbat > 0) {
         const int ret = snprintf(power_status, sizeof(power_status), "%umv", vbat);
         JADE_ASSERT(ret > 0 && ret < sizeof(power_status));
@@ -2377,7 +2403,7 @@ static bool get_timer_minutes(uint32_t* minutes)
 
     while (true) {
         digit_entry_t digit_entry
-            = { .entry_type = DIGIT_ENTRY_NUMERIC, .initial_state = ZERO, .digits_shown = true, .num_digits = 3 };
+            = { .entry_type = DIGIT_ENTRY_NUMERIC, .initial_state = ZERO, .digits_shown = true, .max_digits = 3 };
         make_digit_entry_activity(&digit_entry, "Timer", "Minutes (001-999):");
         JADE_ASSERT(digit_entry.activity);
         gui_set_current_activity_ex(digit_entry.activity, true);
@@ -2865,8 +2891,8 @@ static void handle_settings(const bool startup_menu)
 
 // NOTE: Only boards listed here have brightness controls
 #if defined(CONFIG_BOARD_TYPE_JADE_V1_1) || defined(CONFIG_BOARD_TYPE_JADE_V2_ANY)                                     \
-    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY)                            \
-    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
+    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)                           \
+    || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY) || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
         case BTN_SETTINGS_DISPLAY_BRIGHTNESS:
             handle_screen_brightness();
             break;
@@ -2875,6 +2901,14 @@ static void handle_settings(const bool startup_menu)
         case BTN_SETTINGS_DISPLAY_ORIENTATION:
             handle_flip_orientation();
             break;
+
+#if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_BOARD_TYPE_JADE_ANY)
+        case BTN_SETTINGS_DISPLAY_CAMERA_ROTATE:
+            handle_camera_rotate();
+            // remake parent screen to update the menu item label
+            act = make_display_settings_activity();
+            break;
+#endif
 
         case BTN_SETTINGS_DISPLAY_THEME:
             handle_display_theme();
@@ -3151,6 +3185,15 @@ static void display_screen(jade_process_t* process, gui_activity_t* act)
     // Should be no-op if we didn't switch away from this screen
     gui_set_current_activity_ex(act, true);
 
+#ifdef CONFIG_HEAP_TRACING
+    // Stop the trace started when the dashboard was last shown, then dump the
+    // internal DRAM heap layout and report allocations which were not freed
+    heap_trace_stop();
+    heap_caps_dump(MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
+    dump_mem_report();
+    heap_trace_start(HEAP_TRACE_ALL);
+#endif
+
     // Refeed sensor entropy every time we return to dashboard screen
     const TickType_t tick_count = xTaskGetTickCount();
     refeed_entropy(&tick_count, sizeof(tick_count));
@@ -3286,6 +3329,9 @@ void dashboard_process(void* process_ptr)
     // Populate the static fields about the unit/fw
     device_name = get_jade_id();
     JADE_ASSERT(device_name);
+
+    // Migrate to an empty activity, to free the splash screen
+    gui_set_current_activity_ex(gui_make_activity(), true);
 
     // NOTE: Create 'Ready' screen for when Jade is unlocked and ready to use early, so that
     // it does not fragment the RAM (since it is long-lived).

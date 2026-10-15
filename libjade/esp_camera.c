@@ -111,8 +111,11 @@ void camera_set_debug_image(const uint8_t* data, const size_t len)
 
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool show_ui, const char* text_label,
     const bool show_click_button, const qr_guide_type_t qr_guide_type, const char* help_url,
-    progress_bar_t* progress_bar)
+    progress_bar_t* progress_bar, gui_activity_t** act_out)
 {
+    if (act_out) {
+        *act_out = NULL;
+    }
     if (debug_image_data) {
         if (!fn(CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT, debug_image_data, CAMERA_IMAGE_WIDTH * CAMERA_IMAGE_HEIGHT,
                 ctx)) {

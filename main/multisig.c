@@ -18,7 +18,7 @@ static const uint8_t CURRENT_MULTISIG_RECORD_VERSION = 3;
 // version 1, 1of1  (moving to v1 predated allowing just 1 signer)
 #define MIN_MULTISIG_BYTES_LEN (4 + 78 + 32)
 
-bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, const uint8_t threshold,
+bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, const uint32_t threshold,
     const uint8_t* master_blinding_key, const size_t master_blinding_key_len, const signer_t* signers,
     const size_t num_signers, const size_t total_num_path_elements, uint8_t* output_bytes, const size_t output_len)
 {
@@ -27,6 +27,7 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
     JADE_ASSERT(signers);
     JADE_ASSERT(num_signers >= threshold);
     JADE_ASSERT(num_signers <= MAX_ALLOWED_SIGNERS);
+    JADE_STATIC_ASSERT(MAX_ALLOWED_SIGNERS <= 0xff); // Must fit in uint8_t
     JADE_ASSERT(total_num_path_elements <= num_signers * 2 * MAX_PATH_LEN);
     JADE_ASSERT(output_bytes);
     JADE_ASSERT(output_len == MULTISIG_BYTES_LEN(master_blinding_key_len, num_signers, total_num_path_elements));
@@ -42,18 +43,13 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
     write_ptr += sizeof(variant_byte);
 
     // 'sorted' flag (new to version 1)
-    const uint8_t sorted_byte = (uint8_t)sorted;
-    memcpy(write_ptr, &sorted_byte, sizeof(sorted_byte));
-    write_ptr += sizeof(sorted_byte);
+    *write_ptr++ = (uint8_t)sorted;
 
     // Threshold
-    memcpy(write_ptr, &threshold, sizeof(threshold));
-    write_ptr += sizeof(threshold);
+    *write_ptr++ = (uint8_t)threshold;
 
     // Blinding key len, and data (new to version 2)
-    const uint8_t keylen = (uint8_t)master_blinding_key_len;
-    memcpy(write_ptr, &keylen, sizeof(keylen));
-    write_ptr += sizeof(keylen);
+    *write_ptr++ = (uint8_t)master_blinding_key_len;
 
     if (master_blinding_key_len) {
         memcpy(write_ptr, master_blinding_key, master_blinding_key_len);
@@ -404,19 +400,18 @@ bool multisig_load_from_storage(const char* multisig_name, multisig_data_t* outp
     return true;
 }
 
-bool multisig_validate_paths(
-    const bool is_change, CborValue* all_signer_paths, bool* all_paths_as_expected, bool* final_elements_consistent)
+bool multisig_validate_paths(const bool is_change, CborValue* all_signer_paths, const size_t num_signer_paths,
+    bool* all_paths_as_expected, bool* final_elements_consistent)
 {
     JADE_ASSERT(all_signer_paths);
     JADE_ASSERT(all_paths_as_expected);
 
-    bool seen_unusual_path = false;
-    bool seen_final_element_mismatch = false;
-
-    size_t num_array_items = 0;
-    if (cbor_value_get_array_length(all_signer_paths, &num_array_items) != CborNoError || num_array_items == 0) {
+    if (num_signer_paths == 0) {
         return false;
     }
+
+    bool seen_unusual_path = false;
+    bool seen_final_element_mismatch = false;
 
     uint32_t expected_final_path_element;
     uint32_t path[MAX_PATH_LEN];
@@ -425,7 +420,7 @@ bool multisig_validate_paths(
     CborValue arrayItem;
     CborError cberr = cbor_value_enter_container(all_signer_paths, &arrayItem);
     JADE_ASSERT(cberr == CborNoError);
-    for (size_t i = 0; i < num_array_items; ++i) {
+    for (size_t i = 0; i < num_signer_paths; ++i) {
         JADE_ASSERT(!cbor_value_at_end(&arrayItem));
 
         size_t path_len = 0;

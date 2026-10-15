@@ -229,35 +229,23 @@ void update_2048_activity(const ui_2048_view_t* view, const uint8_t tiles[UI_204
         const color_t background = accent ? TFT_WHITE : tile_background(tiles[i]);
         const color_t foreground = accent ? TFT_BLACK : tile_foreground(tiles[i]);
         const uint32_t font = strlen(value) >= 3 ? SMALL_FONT : GAME_2048_TILE_FONT;
-        const bool text_changed = strcmp(view->tile_texts[i]->text->text, value) != 0;
-        const bool font_changed = view->tile_texts[i]->text->font != font;
-        const bool color_changed
-            = view->tile_fills[i]->fill->color != background || view->tile_texts[i]->text->color != foreground;
-
         gui_set_color(view->tile_fills[i], background);
         gui_set_color(view->tile_texts[i], foreground);
         gui_set_text_font(view->tile_texts[i], font);
-        if (text_changed) {
-            gui_update_text(view->tile_texts[i], value);
-        } else if (color_changed || font_changed) {
-            gui_repaint(view->tile_fills[i]);
-        }
+        gui_update_text(view->tile_texts[i], value);
+        gui_repaint(view->tile_fills[i]);
     }
 
     char score_value[32];
     format_score(score_value, sizeof(score_value), score);
-    if (strcmp(view->score_text->text->text, score_value)) {
-        gui_update_text(view->score_text, score_value);
-    }
+    gui_update_text(view->score_text, score_value);
 
 #if GAME_2048_LANDSCAPE_LAYOUT
     const char* const axis = vertical ? "Axis: Vertical" : "Axis: Horizontal";
 #else
     const char* const axis = vertical ? "Vertical" : "Horizontal";
 #endif
-    if (strcmp(view->axis_text->text->text, axis)) {
-        gui_update_text(view->axis_text, axis);
-    }
+    gui_update_text(view->axis_text, axis);
 
     // Split nodes do not paint a background, so repaint the owning fill after
     // batched text changes to clear the previous HUD glyphs.

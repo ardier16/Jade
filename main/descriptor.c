@@ -721,23 +721,14 @@ bool descriptor_load_from_storage(const char* descriptor_name, descriptor_data_t
     if (!storage_get_descriptor_registration(
             descriptor_name, registration, MAX_DESCRIPTOR_BYTES_LEN, &registration_len)) {
         *errmsg = "Cannot find named descriptor wallet";
-        free(registration);
-        return false;
-    }
-
-    if (!descriptor_from_bytes(registration, registration_len, output)) {
+    } else if (!descriptor_from_bytes(registration, registration_len, output)) {
         *errmsg = "Cannot de-serialise descriptor wallet data";
-        free(registration);
-        return false;
-    }
-
-    // Sanity check data we are have loaded
-    if (output->script_len > sizeof(output->script) || output->num_values > MAX_ALLOWED_SIGNERS) {
-        *errmsg = "Descriptor wallet data invalid";
+    } else if (output->script_len > sizeof(output->script) || output->num_values > MAX_ALLOWED_SIGNERS) {
+        *errmsg = "Descriptor wallet data invalid"; // Failed sanity checks
     }
 
     free(registration);
-    return true;
+    return *errmsg == NULL;
 }
 
 // Get the registered descriptor record names

@@ -43,6 +43,7 @@ target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DBUILD_ELEMENTS=1")
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DBUILD_MINIMAL=1")
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_MBEDTLS_SHA256_H")
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_MBEDTLS_SHA512_H")
+target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DHAVE_EXPLICIT_BZERO=1")
 
 # libsecp flags
 target_compile_definitions(${COMPONENT_TARGET} PRIVATE "-DECMULT_WINDOW_SIZE=8")

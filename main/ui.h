@@ -38,12 +38,15 @@ typedef struct {
 
 // digit entry
 #define DIGIT_ENTRY_SIZE 6
+#define DIGIT_ENTRY_UINT_MAX 999999
+#define DIGIT_ENTRY_WORD_NUMBER_SIZE 4
 
 enum __attribute__((__packed__)) digit_entry_type {
     DIGIT_ENTRY_INVALID = 0,
     DIGIT_ENTRY_PIN,
     DIGIT_ENTRY_INDEX,
     DIGIT_ENTRY_NUMERIC,
+    DIGIT_ENTRY_WORD_NUMBER,
 };
 
 enum __attribute__((__packed__)) digit_entry_initial_state { RANDOM, ZERO, POSITION };
@@ -65,8 +68,8 @@ typedef struct {
     const enum digit_entry_type entry_type;
     const enum digit_entry_initial_state initial_state;
     const bool digits_shown;
-    // Zero preserves the historical six-digit entry behaviour.
-    const uint8_t num_digits;
+    const uint8_t max_digits; // Zero uses DIGIT_ENTRY_SIZE.
+    const uint32_t max_value; // Zero leaves the numeric value unbounded.
 
     uint8_t digit[DIGIT_ENTRY_SIZE];
     enum digit_entry_status digit_status[DIGIT_ENTRY_SIZE];
@@ -117,6 +120,10 @@ typedef struct {
     uint32_t font;
     uint32_t ev_id;
     uint8_t borders;
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    // Direct touch requires a long press to activate the button
+    bool is_critical;
+#endif
 } btn_data_t;
 
 #define UI_2048_CELL_COUNT 16
@@ -139,6 +146,13 @@ gui_activity_t* make_2048_pause_activity(void);
 gui_activity_t* make_2048_confirm_activity(const char* title, const char* message);
 gui_activity_t* make_2048_win_activity(uint64_t score);
 gui_activity_t* make_2048_game_over_activity(uint64_t score);
+
+// Marks a button critical in a btn_data_t initialiser - empty without direct touch
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+#define BTN_IS_CRITICAL , .is_critical = true
+#else
+#define BTN_IS_CRITICAL
+#endif
 
 // Helper to update dynamic menu item label (name: value)
 void update_menu_item(gui_view_node_t* node, const char* label, const char* value);
@@ -186,6 +200,9 @@ void await_error_3(const char* msg1, const char* msg2, const char* msg3);
 
 // Activity that displays a message and awaits a 'Yes'/'Continue' or 'No'/'Skip'/'Back' event
 bool await_yesno_activity(
+    const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);
+// As above, but the 'Yes' button is marked critical - for destructive/irreversible actions
+bool await_yesno_activity_critical(
     const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);
 bool await_skipyes_activity(
     const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);

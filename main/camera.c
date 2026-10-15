@@ -9,6 +9,7 @@
 #include "jade_tasks.h"
 #include "power.h"
 #include "sensitive.h"
+#include "storage.h"
 #include "ui.h"
 #include "utils/event.h"
 #include "utils/malloc_ext.h"
@@ -65,16 +66,26 @@ static volatile bool camera_task_running = false;
 #define UI_CAMERA_IMAGE_HEIGHT CAMERA_IMAGE_HEIGHT
 #endif
 
-// Screen area used to display camera image - full screen
+// Screen area used to display camera image - full screen on portrait displays,
+// where the image is narrower than the screen, otherwise 70% of screen width
+#if CONFIG_DISPLAY_HEIGHT > CONFIG_DISPLAY_WIDTH
+#define UI_DISPLAY_WIDTH CONFIG_DISPLAY_WIDTH
+#else
 #define UI_DISPLAY_WIDTH (CONFIG_DISPLAY_WIDTH * 70 / 100) // 70% of screen width
+#endif
 #define UI_DISPLAY_HEIGHT CONFIG_DISPLAY_HEIGHT
+
+// The scale is chosen as if the image were limited to the central 70% of the
+// screen width, so that widening the displayed area on portrait displays does
+// not also zoom in.
+#define UI_SCALE_REF_WIDTH (CONFIG_DISPLAY_WIDTH * 70 / 100)
 
 // Scale down if image much larger than screen area in both dimensions
 // The numerator is fixed at 2, allowing half-integer scaling
 #define SCALE_NUMERATOR 2
 #define CALC_SCALE_DENOMINATOR(img, ui) CAM_MAX(SCALE_NUMERATOR, (((SCALE_NUMERATOR * img) + (ui / 2)) / ui))
 #define SCALE_DENOMINATOR                                                                                              \
-    CAM_MIN(CALC_SCALE_DENOMINATOR(UI_CAMERA_IMAGE_WIDTH, UI_DISPLAY_WIDTH),                                           \
+    CAM_MIN(CALC_SCALE_DENOMINATOR(UI_CAMERA_IMAGE_WIDTH, UI_SCALE_REF_WIDTH),                                         \
         CALC_SCALE_DENOMINATOR(UI_CAMERA_IMAGE_HEIGHT, UI_DISPLAY_HEIGHT))
 #define CAM2UI(x) ((x * SCALE_NUMERATOR) / SCALE_DENOMINATOR)
 #define UI2CAM(x) ((x * SCALE_DENOMINATOR) / SCALE_NUMERATOR)
@@ -210,6 +221,9 @@ typedef struct {
 
     // Context info passed to that function
     void* ctx;
+
+    // Output: the camera activity created (if show_ui)
+    gui_activity_t* camera_act;
 } camera_task_config_t;
 
 // Signal to the caller that we are done, and await our death
@@ -263,8 +277,23 @@ static void jade_camera_init(void)
         .pin_pclk = CONFIG_CAMERA_PCLK,
         .pin_vsync = CONFIG_CAMERA_VSYNC,
         .pin_href = CONFIG_CAMERA_HREF,
-        .pin_sscb_sda = CONFIG_CAMERA_SDA,
-        .pin_sscb_scl = CONFIG_CAMERA_SCL,
+#if defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAYS3PROCAMERA)
+        // The SY6970 PMU and OV5640 SCCB share GPIO5/GPIO6 on I2C0.
+        // Setting SCCB pins to -1 makes esp-camera reuse that existing bus
+        // rather than initializing a separate SCCB bus.
+        .pin_sccb_sda = -1,
+        .pin_sccb_scl = -1,
+        .sccb_i2c_port = 0,
+#elif defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)
+        // The touch controller, the pmu and the OV5640 SCCB share the same pins,
+        // so reuse the bus the touchscreen already owns
+        .pin_sccb_sda = -1,
+        .pin_sccb_scl = -1,
+        .sccb_i2c_port = CONFIG_DISPLAY_TOUCHSCREEN_I2C,
+#else
+        .pin_sccb_sda = CONFIG_CAMERA_SDA,
+        .pin_sccb_scl = CONFIG_CAMERA_SCL,
+#endif
         .pin_reset = CONFIG_CAMERA_RESET,
         .pin_pwdn = CONFIG_CAMERA_PWDN,
 
@@ -299,20 +328,9 @@ static void jade_camera_init(void)
 
     JADE_LOGI("The camera in use is: %s (%u)", camera_info->name, camera_info->model);
 
-    // GC0308 appears to need image flipping on both axes
-    if (camera_info->model == CAMERA_GC0308) {
-        JADE_ASSERT(camera_sensor->set_hmirror);
-        JADE_ASSERT(camera_sensor->set_vflip);
-        const int hret = camera_sensor->set_hmirror(camera_sensor, 1);
-        const int vret = camera_sensor->set_vflip(camera_sensor, 1);
-        if (hret || vret) {
-            JADE_LOGE("Failed to set camera hmirror/vflip, returned: %d/%d", hret, vret);
-        }
-    }
-
     // OV3660 needs a vertical flip for the ESP32 Wrover Cam
     // OV5640 needs vertical flip for T-Display S3 PRO
-    else if (camera_info->model == CAMERA_OV3660 || camera_info->model == CAMERA_OV5640) {
+    if (camera_info->model == CAMERA_OV3660 || camera_info->model == CAMERA_OV5640) {
         JADE_ASSERT(camera_sensor->set_vflip);
         const int vret = camera_sensor->set_vflip(camera_sensor, 1);
         if (vret) {
@@ -320,7 +338,7 @@ static void jade_camera_init(void)
         }
     }
 #endif // !defined(CONFIG_ETH_USE_OPENETH) && defined(ESP_PLATFORM)
-#if defined(CONFIG_DISPLAY_TOUCHSCREEN)
+#if defined(CONFIG_DISPLAY_TOUCHSCREEN) && !defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)
     touchscreen_deinit();
     touchscreen_init();
 #endif
@@ -331,7 +349,7 @@ static void jade_camera_stop(void)
 {
     esp_camera_deinit();
     power_camera_off();
-#if defined(CONFIG_DISPLAY_TOUCHSCREEN)
+#if defined(CONFIG_DISPLAY_TOUCHSCREEN) && !defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)
     touchscreen_deinit();
     touchscreen_init();
 #endif
@@ -373,8 +391,12 @@ static void jade_camera_task(void* data)
 
     typedef void (*copy_camera_image_fn_t)(
         uint8_t[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint8_t[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH]);
+    // The user may have persisted an extra 180-degree rotation to correct for camera
+    // modules which can be physically mounted either way up (eg. on some DIY units).
+    // This composes with any flipped display orientation, hence the inequality.
+    const bool camera_rotated = storage_get_gui_flags() & GUI_FLAGS_CAMERA_ROTATED;
     copy_camera_image_fn_t copy_camera_image
-        = gui_get_flipped_orientation() ? COPY_CAMERA_IMAGE_FLIPPED : COPY_CAMERA_IMAGE_STRAIGHT;
+        = (gui_get_flipped_orientation() != camera_rotated) ? COPY_CAMERA_IMAGE_FLIPPED : COPY_CAMERA_IMAGE_STRAIGHT;
 
     camera_task_config_t* const camera_config = (camera_task_config_t*)data;
     JADE_ASSERT(camera_config->fn_process);
@@ -405,6 +427,7 @@ static void jade_camera_task(void* data)
         // Create camera screen
         act = make_camera_activity(&image_node, &label_node, camera_config->show_click_button,
             camera_config->qr_guide_type, camera_config->progress_bar, camera_config->help_url);
+        camera_config->camera_act = act;
         gui_set_current_activity(act);
     }
 
@@ -513,11 +536,12 @@ static void jade_camera_task(void* data)
 
     // Finished with camera - free everything and kill task
     if (camera_config->show_ui) {
-        SENSITIVE_POP(image_buffer);
-        free(image_buffer);
         // Null picture under gui_mutex so the GUI task cannot call display_picture()
         // with our stack-allocated 'pic' after this task's stack is freed.
-        gui_clear_picture(image_node);
+        const bool repaint_parent = false;
+        gui_update_picture(image_node, NULL, repaint_parent);
+        SENSITIVE_POP(image_buffer);
+        free(image_buffer);
     }
     camera_task_running = false;
     camera_post_exit_event_and_await_death();
@@ -525,18 +549,19 @@ static void jade_camera_task(void* data)
 
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool show_ui, const char* text_label,
     const bool show_click_button, const qr_guide_type_t qr_guide_type, const char* help_url,
-    progress_bar_t* progress_bar)
+    progress_bar_t* progress_bar, gui_activity_t** act_out)
 {
     JADE_ASSERT(fn);
     // ctx is optional
 
-    // show_ui indicates whether to show a ui or collect cmaera data 'silently'
+    // show_ui indicates whether to show a ui or collect camera data 'silently'
     // text_label is optional
     // text_button is optional - indicates we want the user to select the images presented
     // (otherwise all images are presented) to the given callback function ctx.fn_process()
     // show_qr_frame_guide is optional - if set guides for ideal QR placement are shown
     // help_url is optional - if preset a '?' (and help screen) are shown
     // progress_bar is optional, and is for providing feedback for multi-frame scanning
+    // act_out is optional - if provided receives the camera activity created (when show_ui is true)
     // NOTE: not valid to have a label, button[label], help_url, qr frame or progress bar if no ui shown
     // NOTE: atm show_click_btn and help_url are mutually exclusive
     if (!show_ui) {
@@ -555,7 +580,8 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
         .qr_guide_type = qr_guide_type,
         .progress_bar = progress_bar,
         .fn_process = fn,
-        .ctx = ctx };
+        .ctx = ctx,
+        .camera_act = NULL };
 
     // When running the camera task we set the minimum idle timeout to keep the hw from sleeping too quickly
     // (If the user has set a longer timeout value that is respected)
@@ -582,15 +608,23 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
 
     // Remove the minimum idle timeout
     idletimer_set_min_timeout_secs(0);
+
+    // Return the camera activity pointer if caller requested it
+    if (act_out) {
+        *act_out = camera_config.camera_act;
+    }
 }
 
 #else // CONFIG_HAS_CAMERA
 
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool show_ui, const char* text_label,
     const bool show_click_button, const qr_guide_type_t qr_guide_type, const char* help_url,
-    progress_bar_t* progress_bar)
+    progress_bar_t* progress_bar, gui_activity_t** act_out)
 {
     JADE_LOGW("No camera supported for this device");
+    if (act_out) {
+        *act_out = NULL;
+    }
     await_error("No camera detected");
 }
 

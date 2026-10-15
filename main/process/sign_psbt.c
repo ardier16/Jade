@@ -165,7 +165,7 @@ static bool is_green_multisig_signers(const network_t network_id, const key_iter
 
     // If the backend path matches then this is a Green multisig
     return ga_path_len == expected_ga_path_len
-        && sodium_memcmp(expected_ga_path, ga_path, ga_path_len * sizeof(ga_path[0]));
+        && !sodium_memcmp(expected_ga_path, ga_path, ga_path_len * sizeof(ga_path[0]));
 }
 
 // Generate a green-multisig script, and compare it to the target script provided.
@@ -527,7 +527,8 @@ static bool psbt_update_outputs(const network_t network_id, struct wally_psbt* p
                 outinfo->flags |= OUTPUT_FLAG_HAS_BLINDING_KEY;
             }
 
-            if (wally_psbt_get_output_amount(psbt, index, &outinfo->value) == WALLY_OK
+            if (wally_psbt_has_output_amount(psbt, index, &written) == WALLY_OK && written
+                && wally_psbt_get_output_amount(psbt, index, &outinfo->value) == WALLY_OK
                 && wally_psbt_get_output_asset(psbt, index, outinfo->asset_id, sizeof(outinfo->asset_id), &written)
                     == WALLY_OK
                 && written) {
@@ -807,7 +808,11 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
         }
         if (!for_liquid) {
             // Bitcoin: Collect input total for fee calculation
-            input_amount += utxo->satoshi;
+            if (!checked_add_uint64(input_amount, utxo->satoshi, &input_amount)) {
+                *errmsg = "Total input amounts exceed maximum";
+                retval = CBOR_RPC_BAD_PARAMETERS;
+                goto cleanup;
+            }
         }
 
         if (!key_iter_input_begin_public(psbt, index, &iter)) {
@@ -1022,8 +1027,12 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
         }
     } else {
         // Bitcoin: Sanity check amounts
-        uint64_t output_amount;
-        JADE_WALLY_VERIFY(wally_tx_get_total_output_satoshi(tx, &output_amount));
+        uint64_t output_amount = 0;
+        if (wally_tx_get_total_output_satoshi(tx, &output_amount) != WALLY_OK) {
+            *errmsg = "Total output amounts exceed maximum";
+            retval = CBOR_RPC_BAD_PARAMETERS;
+            goto cleanup;
+        }
         if (output_amount > input_amount) {
             *errmsg = "Total input amounts less than total output amounts";
             retval = CBOR_RPC_BAD_PARAMETERS;
@@ -1139,7 +1148,7 @@ static bool parse_psbt_bytes(void* ctx)
     JADE_ASSERT(ctx);
     psbt_parse_data_t* data = (psbt_parse_data_t*)ctx;
     data->psbt_out = NULL;
-    const uint32_t flags = WALLY_PSBT_PARSE_FLAG_STRICT;
+    const uint32_t flags = WALLY_PSBT_PARSE_FLAG_STRICT | WALLY_PSBT_PARSE_FLAG_COMPLETE;
     const int wret = wally_psbt_from_bytes(data->bytes, data->bytes_len, flags, &data->psbt_out);
     return wret == WALLY_OK && data->psbt_out != NULL;
 }
@@ -1252,7 +1261,7 @@ void sign_psbt_process(void* process_ptr)
     // Serialise signed psbt
     uint8_t* bytes = NULL;
     size_t bytes_len = 0;
-    if (!serialise_psbt(psbt, &bytes, &bytes_len)) {
+    if (!serialise_psbt(psbt, &bytes, &bytes_len) || !bytes_len) {
         jade_process_reject_message(process, CBOR_RPC_INTERNAL_ERROR, "Failed to serialise sign psbt");
         goto cleanup;
     }
@@ -1263,7 +1272,7 @@ void sign_psbt_process(void* process_ptr)
     size_t original_id_len = 0;
     rpc_get_id(&process->ctx.value, original_id, sizeof(original_id), &original_id_len);
 
-    const int nmsgs = (bytes_len / PSBT_OUT_CHUNK_SIZE) + 1;
+    const int nmsgs = ((bytes_len - 1) / PSBT_OUT_CHUNK_SIZE) + 1;
     uint8_t* const msgbuf = JADE_MALLOC(MAX_OUTPUT_MSG_SIZE);
     uint8_t* chunk = bytes;
     for (size_t imsg = 0; imsg < nmsgs; ++imsg) {

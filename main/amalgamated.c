@@ -126,8 +126,8 @@ void __wrap_abort(void);
 #ifndef CONFIG_LIBJADE
 #include "./random.c"
 #include "./selfcheck.c"
-#include "./sensitive.c"
 #endif // CONFIG_LIBJADE
+#include "./sensitive.c"
 #ifdef ESP_PLATFORM
 #include "./serial.c"
 #endif // ESP_PLATFORM
@@ -144,9 +144,7 @@ void __wrap_abort(void);
 #include "./ui/dialogs.c"
 #include "./ui/digit_entry.c"
 #include "./ui/game_2048.c"
-#ifndef CONFIG_LIBJADE
 #include "./ui/keyboard.c"
-#endif // CONFIG_LIBJADE
 #include "./ui/mnemonic.c"
 #include "./ui/multisig.c"
 #include "./ui/ota.c"
@@ -169,9 +167,7 @@ void __wrap_abort(void);
 #include "./utils/network.c"
 #include "./utils/psbt.c"
 #include "./utils/shake256.c"
-#ifndef CONFIG_LIBJADE
 #include "./utils/temporary_stack.c"
-#endif // CONFIG_LIBJADE
 #include "./utils/urldecode.c"
 #include "./utils/util.c"
 #include "./utils/wally_ext.c"

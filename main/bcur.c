@@ -78,13 +78,12 @@ bool bcur_parse_bip39(
     // Parse cbor
     CborValue value;
     CborParser parser;
-    CborError cberr = cbor_parser_init(cbor, cbor_len, CborValidateCompleteData, &parser, &value);
-    if (cberr != CborNoError || !cbor_value_is_valid(&value) || !cbor_value_is_container(&value)) {
+    if (!rpc_untrusted_parser_init(cbor, cbor_len, &parser, &value) || !cbor_value_is_container(&value)) {
         return false;
     }
 
     CborValue mapItem;
-    cberr = cbor_value_enter_container(&value, &mapItem);
+    CborError cberr = cbor_value_enter_container(&value, &mapItem);
     if (cberr != CborNoError || !cbor_value_is_valid(&mapItem)) {
         return false;
     }
@@ -226,8 +225,7 @@ bool bcur_parse_bytes(const uint8_t* cbor, size_t cbor_len, const uint8_t** byte
     // Parse cbor
     CborValue value;
     CborParser parser;
-    const CborError cberr = cbor_parser_init(cbor, cbor_len, CborValidateCompleteData, &parser, &value);
-    if (cberr != CborNoError || !cbor_value_is_valid(&value)) {
+    if (!rpc_untrusted_parser_init(cbor, cbor_len, &parser, &value)) {
         return false;
     }
 
@@ -271,8 +269,7 @@ bool bcur_parse_jade_message(const uint8_t* cbor, size_t cbor_len, CborParser* p
     // params is optional
 
     // Parse cbor
-    CborError cberr = cbor_parser_init(cbor, cbor_len, CborValidateCompleteData, parser, root);
-    if (cberr != CborNoError || !cbor_value_is_valid(root) || !cbor_value_is_map(root)) {
+    if (!rpc_untrusted_parser_init(cbor, cbor_len, parser, root) || !cbor_value_is_map(root)) {
         JADE_LOGE("Failed to parse bcur cbor message");
         return false;
     }
@@ -292,7 +289,7 @@ bool bcur_parse_jade_message(const uint8_t* cbor, size_t cbor_len, CborParser* p
     // If caller also wants params, the params map must be present
     // If caller hasn't asked for params, they are allowed to not be present.
     if (params) {
-        cberr = cbor_value_map_find_value(root, CBOR_RPC_TAG_PARAMS, params);
+        const CborError cberr = cbor_value_map_find_value(root, CBOR_RPC_TAG_PARAMS, params);
         if (cberr != CborNoError || !cbor_value_is_valid(params) || cbor_value_get_type(params) == CborInvalidType
             || !cbor_value_is_map(params)) {
             JADE_LOGE("Failed to fetch parameters map");
@@ -783,11 +780,11 @@ void bcur_create_qr_icons(const uint8_t* payload, const size_t len, const char* 
     *num_icons = num_fragments;
 }
 
-#ifdef CONFIG_DEBUG_MODE
+#ifdef CONFIG_LIBJADE
 // NOTE: iterative test for the BCUR_MAX_FRAGMENT_SIZE() macro which yields the input
 // 'max fragment size' (of payload data) to produce output bcur-encoded fragments close to
 // (but not more than!) the desired qr-code capacity.
-// NOTE: takes a while to run - qemu recommended! (~5mins on my laptop, on qemu)
+// NOTE: takes a while to run and thrashes the heap so only run in libjade
 bool bcur_check_fragment_sizes(void)
 {
     // Test various versions, with various message types, and various payload lengths

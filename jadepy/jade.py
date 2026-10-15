@@ -136,32 +136,6 @@ except ImportError as e:
     logger.info('Default _http_requests() function will not be available')
 
 
-def generate_dump():
-    while True:
-        try:
-            with socket.create_connection(('localhost', 4444)) as s:
-                output = b""
-                while b'Open On-Chip Debugger' not in output:
-                    data = s.recv(1024)
-                    if not data:
-                        continue
-                    output += data
-
-                s.sendall(b'esp gcov dump\n')
-
-                output = b''
-                while b'Targets disconnected.' not in output:
-                    data = s.recv(1024)
-                    if not data:
-                        continue
-                    output += data
-                s.sendall(b'resume\n')
-                time.sleep(1)
-            return
-        except ConnectionRefusedError:
-            pass
-
-
 class JadeAPI:
     """
     High-Level Jade Client API
@@ -721,7 +695,6 @@ class JadeAPI:
     def get_bip85_bip39_entropy(self, num_words, index, pubkey):
         """
         RPC call to fetch encrypted bip85-bip39 entropy.
-        NOTE: Only available in a DEBUG build of the firmware.
 
         Parameters
         ----------
@@ -1152,6 +1125,14 @@ class JadeAPI:
         descriptor_name : string
             Name to use to identify this descriptor wallet registration record.
             If a registration record exists with the name given, that record is overwritten.
+
+        descriptor_script : string
+            The text of the output descriptor as a BIP 388 wallet policy.
+
+        datavalues : dict
+            A dict of BIP 388 key placeholders (e.g. "@1") to key expressions. For
+            Liquid confidential descriptors, the blinding key placeholder used
+            in the "ct()" wrapper must be named "@B".
 
         Returns
         -------
@@ -2224,10 +2205,14 @@ class JadeInterface:
         finished = False
 
         while not finished:
-            byte_ = self.impl.read(1)
-            drained.extend(byte_)
-            finished = byte_ == b''
 
+            try:
+                byte_ = self.read(1)
+                drained.extend(byte_)
+            except Exception as _:
+                byte_ = b''
+
+            finished = byte_ == b''
             if finished or byte_ == b'\n' or len(drained) > 256:
                 try:
                     device_logger.warning(drained.decode('utf-8'))
@@ -2285,7 +2270,7 @@ class JadeInterface:
             The request formatted as cbor message bytes
         """
         dump = cbor.dumps(request)
-        logger.info(f'Sending {request["method"]} request {request["id"]} length {len(dump)}')
+        logger.debug(f'Sending {request["method"]} request {request["id"]} length {len(dump)}')
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f'Sending: {_hexlify(request)}')
         return dump
@@ -2348,10 +2333,10 @@ class JadeInterface:
 
     def read_cbor_message(self):
         """
-        Try to read a single cbor (response) message from the underlying interface.
-        Respects the any read timeout.
+        Try to read a single cbor response message from the underlying interface.
         If any 'log' messages are received, logs them locally at the nearest corresponding level
         and awaits the next message.  Returns when it receives what appears to be a reply message.
+        Raises self.EOFError on end of stream, read timeout expiry, lost-connection etc.
 
         Returns
         -------
@@ -2364,15 +2349,14 @@ class JadeInterface:
             message = cbor.load(self)
 
             if isinstance(message, collections.abc.Mapping):
-                # A message response (to a prior request)
                 if 'id' in message:
-                    logger.info(f'Received reply {message["id"]}')
+                    # A message response (to a prior request)
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f'Received: {_hexlify(message)}')
+                        logger.debug(f'Received reply {message["id"]}: {_hexlify(message)}')
                     return message
 
-                # A log message - handle as normal
                 if 'log' in message:
+                    # A log message - log it using the appropriate level
                     response = message['log']
                     log_method = device_logger.error
                     try:
@@ -2398,16 +2382,12 @@ class JadeInterface:
 
     def read_response(self, long_timeout=False):
         """
-        Try to read a single cbor (response) message from the underlying interface.
-        If any 'log' messages are received, logs them locally at the nearest corresponding level
-        and awaits the next message.  Returns when it receives what appears to be a reply message.
-        If `long_timeout` is false, any read-timeout is respected.  If True, the call will block
-        indefinitely awaiting a response message.
+        Call read_cbor_message() with optional retry on timeout.
 
         Parameters
         ----------
         long_timeout : bool
-            Whether to wait indefinitely for the next (response) message.
+            True to retry waiting if a retryable error occurs.
 
         Returns
         -------
@@ -2418,7 +2398,8 @@ class JadeInterface:
             try:
                 return self.read_cbor_message()
             except self.EOFError as _:
-                if not long_timeout:
+                impl_eof = getattr(self.impl, 'eof', False)  # Set when EOF is unrecoverable
+                if not long_timeout or impl_eof:
                     raise
 
     @staticmethod

@@ -30,7 +30,7 @@ gui_view_node_t* make_even_split(const ui_button_layout_t layout, const uint8_t 
     // num_splits range asserted in switch below
 
     // Make the split relevant for the number of buttons
-    typedef void (*make_split_fn)(gui_view_node_t** ptr, enum gui_split_type kind, uint8_t parts, ...);
+    typedef void (*make_split_fn)(gui_view_node_t** ptr, enum gui_split_type kind, int parts, ...);
     make_split_fn make_split = (layout == UI_COLUMN) ? gui_make_vsplit : gui_make_hsplit;
 
     // Make a split for the number of buttons (if greater than one)
@@ -96,6 +96,13 @@ void add_button(gui_view_node_t* parent, btn_data_t* btn_info)
         // In more complex cases caller can prepare content and pass instead
         gui_set_parent(btn_info->content, btn);
     }
+
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    if (btn_info->is_critical && btn_info->ev_id != GUI_BUTTON_EVENT_NONE) {
+        // Critical button: Requires a long press to activate under direct touch
+        gui_set_button_critical(btn);
+    }
+#endif
 
     // Set the (btn) control back in the info struct
     btn_info->btn = btn;
@@ -332,7 +339,7 @@ gui_activity_t* make_show_message_activity(const char* message[], const size_t m
         const size_t msgextent = message_size * h;
         toppad = msgextent < yextent ? (yextent - msgextent) / 2 : 0; // top padding to centre message
         JADE_LOGD("ypct, yextent, msgextent, toppad: %u, %u, %u, %u", ypct, yextent, msgextent, toppad);
-        JADE_ASSERT(toppad < 100); // sanity check
+        JADE_ASSERT(toppad <= UINT8_MAX); // stored as a uint8_t padding
 
         switch (message_size) {
         case 2:
@@ -435,11 +442,14 @@ gui_activity_t* display_processing_message_activity()
 }
 
 // Show passed dialog and handle events until a 'yes' or 'no', which is translated into a boolean return
+// Destroys the passed activity before returning.
 // NOTE: only expect BTN_YES, BTN_NO and BTN_HELP events.
 static bool await_yesno_activity_loop(gui_activity_t* const act, const char* help_url)
 {
     JADE_ASSERT(act);
     // help_url is optional (but should be present if a BTN_HELP btn is present)
+
+    gui_activity_t* const prev_act = gui_current_activity(); // Save current activity
 
     while (true) {
         gui_set_current_activity(act);
@@ -465,6 +475,7 @@ static bool await_yesno_activity_loop(gui_activity_t* const act, const char* hel
             break;
         }
     }
+    gui_destroy_current_activity(act, prev_act); // restore previous activity
 }
 
 // Run activity that displays a message and awaits an 'ack' button click
@@ -518,7 +529,7 @@ void await_error_3(const char* msg1, const char* msg2, const char* msg3)
 // Generic activity that displays a message and Yes/No buttons, and waits
 // for button press.  Function returns true if 'Yes' was pressed.
 static bool await_yesno_activity_impl(const char* title, const char* message[], const size_t message_size,
-    const char* yes, const char* no, const bool default_selection, const char* help_url)
+    const char* yes, const char* no, const bool default_selection, const char* help_url, const bool is_critical)
 {
     // title is optional
     JADE_ASSERT(message);
@@ -532,6 +543,9 @@ static bool await_yesno_activity_impl(const char* title, const char* message[], 
 
     btn_data_t ftrbtns[] = { { .txt = no, .font = GUI_DEFAULT_FONT, .ev_id = BTN_NO, .borders = GUI_BORDER_TOPRIGHT },
         { .txt = yes, .font = GUI_DEFAULT_FONT, .ev_id = BTN_YES, .borders = GUI_BORDER_TOPLEFT } };
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    ftrbtns[1].is_critical = is_critical;
+#endif
 
     gui_activity_t* const act
         = make_show_message_activity(message, message_size, title, hdrbtns, help_url ? 2 : 0, ftrbtns, 2);
@@ -544,14 +558,27 @@ static bool await_yesno_activity_impl(const char* title, const char* message[], 
 bool await_yesno_activity(const char* title, const char* message[], const size_t message_size,
     const bool default_selection, const char* help_url)
 {
-    return await_yesno_activity_impl(title, message, message_size, "Yes", "No", default_selection, help_url);
+    const bool is_critical = false;
+    return await_yesno_activity_impl(
+        title, message, message_size, "Yes", "No", default_selection, help_url, is_critical);
+}
+
+// As above, but the 'Yes' button is marked critical - for destructive/irreversible actions
+bool await_yesno_activity_critical(const char* title, const char* message[], const size_t message_size,
+    const bool default_selection, const char* help_url)
+{
+    const bool is_critical = true;
+    return await_yesno_activity_impl(
+        title, message, message_size, "Yes", "No", default_selection, help_url, is_critical);
 }
 
 // Variant of the Yes/No activity that is instead Skip/Yes
 bool await_skipyes_activity(const char* title, const char* message[], const size_t message_size,
     const bool default_selection, const char* help_url)
 {
-    return await_yesno_activity_impl(title, message, message_size, "Yes", "Skip", default_selection, help_url);
+    const bool is_critical = false;
+    return await_yesno_activity_impl(
+        title, message, message_size, "Yes", "Skip", default_selection, help_url, is_critical);
 }
 
 // Variant of the Yes/No activity that is instead Continue/Back (latter in title bar)
@@ -613,6 +640,10 @@ gui_activity_t* make_carousel_activity(const char* title, gui_view_node_t** labe
 
     // Background fill
     gui_make_fill(&node, gui_get_highlight_color(), FILL_HIGHLIGHT, vsplit);
+#ifdef CONFIG_DISPLAY_TOUCH_DIRECT
+    // Taps on the carousel bar act as prev/select/next
+    gui_activity_set_touch_nav_area(act, node);
+#endif
 
     gui_view_node_t* hsplit;
     gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 3, 10, 80, 10);
@@ -741,10 +772,10 @@ void update_progress_bar(progress_bar_t* progress_bar, const size_t total, const
         return;
     }
 
-    if (!progress_bar->progress_bar->render_data.is_first_time) {
+    if (!progress_bar->progress_bar->is_first_render) {
         // Can only reliably update the progress bar after its initial rendering
-        const uint16_t constraints_x1 = progress_bar->progress_bar->render_data.original_constraints.x1;
-        const uint16_t constraints_x2 = progress_bar->progress_bar->render_data.original_constraints.x2;
+        const uint16_t constraints_x1 = progress_bar->progress_bar->constraints.x1;
+        const uint16_t constraints_x2 = progress_bar->progress_bar->constraints.x2;
         const gui_margin_t* const margins = &progress_bar->progress_bar->margins;
         const uint16_t width_bar = constraints_x2 - constraints_x1 - margins->left - margins->right;
         const uint16_t width_shaded = width_bar * current / total;

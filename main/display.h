@@ -29,6 +29,7 @@ typedef struct {
 typedef struct {
     uint16_t width, height;
     uint32_t* data;
+    uint32_t zeroize_len;
 } Icon;
 
 typedef struct {
@@ -91,12 +92,29 @@ extern const color_t TFT_PINK;
 
 void display_init(TaskHandle_t* gui_h);
 bool display_flip_orientation(bool flipped_orientation);
+
+#if defined(CONFIG_BOARD_TYPE_TTGO_TWATCHS3) || defined(CONFIG_BOARD_TYPE_M5_CORES3)                                   \
+    || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD35)
+#define DISPLAY_HAS_TOUCH_NAVBAR 1
+#else
+#define DISPLAY_HAS_TOUCH_NAVBAR 0
+#endif
+
+// Height in pixels of the touch area reserved below the main display for the
+// virtual navigation buttons (or the fixed capacitive strip on the M5 Core2)
+#define TOUCH_BUTTON_AREA 40
+
+#if DISPLAY_HAS_TOUCH_NAVBAR
+void display_touch_navbar_redraw(void);
+#else
+static inline void display_touch_navbar_redraw(void) {}
+#endif
 Icon* get_icon(const uint8_t* start, const uint8_t* end);
 Picture* get_picture(const uint8_t* start, const uint8_t* end);
-void display_picture(const Picture* imgbuf, int x, int y, dispWin_t area);
+void display_picture(const Picture* imgbuf, int x, int y, const dispWin_t* const cs);
 void display_fill_rect(int x, int y, int w, int h, color_t color);
-void display_icon(const Icon* imgbuf, int x, int y, color_t color, dispWin_t area, const color_t* bg_color);
-void display_print_in_area(const char* st, int x, int y, dispWin_t areaWin, bool wrap);
+void display_icon(const Icon* imgbuf, int x, int y, color_t color, const dispWin_t* const cs, const color_t* bg_color);
+void display_print_in_area(const char* st, int x, int y, const dispWin_t* cs, bool wrap);
 int display_get_string_width(const char* str);
 void display_set_font(uint8_t font);
 int display_get_font_height(void);

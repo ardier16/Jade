@@ -52,7 +52,7 @@ typedef struct _multisig_data {
     uint8_t xpubs[MAX_ALLOWED_SIGNERS * BIP32_SERIALIZED_LEN];
 } multisig_data_t;
 
-WARN_UNUSED_RESULT bool multisig_data_to_bytes(script_variant_t variant, bool sorted, uint8_t threshold,
+WARN_UNUSED_RESULT bool multisig_data_to_bytes(script_variant_t variant, bool sorted, uint32_t threshold,
     const uint8_t* master_blinding_key, size_t master_blinding_key_len, const signer_t* signers, size_t num_signers,
     size_t total_num_path_elements, uint8_t* output_bytes, size_t output_len);
 
@@ -62,8 +62,8 @@ WARN_UNUSED_RESULT bool multisig_data_from_bytes(const uint8_t* bytes, size_t by
 WARN_UNUSED_RESULT bool multisig_load_from_storage(const char* multisig_name, multisig_data_t* output,
     signer_t* signer_details, size_t signer_details_len, size_t* written, const char** errmsg);
 
-WARN_UNUSED_RESULT bool multisig_validate_paths(
-    const bool is_change, CborValue* all_signer_paths, bool* all_paths_as_expected, bool* final_elements_consistent);
+WARN_UNUSED_RESULT bool multisig_validate_paths(bool is_change, CborValue* all_signer_paths, size_t num_signer_paths,
+    bool* all_paths_as_expected, bool* final_elements_consistent);
 
 WARN_UNUSED_RESULT bool multisig_get_pubkeys(const uint8_t* xpubs, size_t num_xpubs, CborValue* all_signer_paths,
     uint8_t* pubkeys, size_t pubkeys_len, size_t* written);

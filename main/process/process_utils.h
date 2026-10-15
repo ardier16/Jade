@@ -1,6 +1,8 @@
 #ifndef PROCESS_UTILS_H_
 #define PROCESS_UTILS_H_
 
+#include <stdint.h>
+
 #include "../jade_assert.h"
 #include "../keychain.h"
 #include "../process.h"
@@ -14,6 +16,10 @@
 #define COMMITMENTS_BLINDING_KEY 0x4
 #define COMMITMENTS_ASSET_BLIND_PROOF 0x8
 #define COMMITMENTS_VALUE_BLIND_PROOF 0x10
+
+#ifdef CONFIG_DEBUG_UNATTENDED_CI
+#define DEBUG_CI_DEFAULT_PIN 12345
+#endif
 
 // Holds asset/value blinding data
 typedef struct {
@@ -122,7 +128,7 @@ WARN_UNUSED_RESULT bool params_identity_curve_index(CborValue* params, const cha
     const char** curve, size_t* curve_len, size_t* index, const char** errmsg);
 
 WARN_UNUSED_RESULT bool params_hashprevouts_outputindex(CborValue* params, const uint8_t** hash_prevouts,
-    size_t* hash_prevouts_len, size_t* output_index, const char** errmsg);
+    size_t* hash_prevouts_len, uint32_t* output_index, const char** errmsg);
 
 typedef struct _descriptor_data descriptor_data_t;
 WARN_UNUSED_RESULT bool params_load_descriptor(CborValue* params, char* descriptor_name,
@@ -142,7 +148,7 @@ WARN_UNUSED_RESULT bool params_tx_input_signing_data(const bool use_ae_signature
     size_t* script_len, script_flavour_t* aggregate_script_flavour, const char** errmsg);
 
 WARN_UNUSED_RESULT bool params_get_bip85_rsa_key(
-    CborValue* params, size_t* key_bits, size_t* index, const char** errmsg);
+    CborValue* params, uint32_t* key_bits, uint32_t* index, const char** errmsg);
 
 // Track the types of the input prevout scripts
 script_flavour_t get_script_flavour(const uint8_t* script, const size_t script_len, bool* is_p2tr);

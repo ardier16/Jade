@@ -954,7 +954,10 @@ quirc_decode_error_t quirc_decode(const struct quirc_code *code,
     return err;
   }
 
-  memset(ds, 0, sizeof(*ds));
+  memset(ds->raw, 0, sizeof(ds->raw));
+  ds->data_bits = 0;
+  ds->ptr = 0;
+  memset(ds->data, 0, QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
 
   read_data(code, data, ds);
   err = codestream_ecc(data, ds);

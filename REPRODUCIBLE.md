@@ -4,14 +4,13 @@ The following assumes the jade repo is cloned, checked-out to the appropriate re
 
 > To initalize and update submodules, run the following:
 > ```
-> git submodule init
-> git submodule update
+> git submodule update --init --recursive
 > ```
 
 NOTE: DO NOT TRY TO FLASH OR OTA THESE BUILD ARTIFACTS ONTO A JADE OR ANY OTHER ESP32 HARDWARE.
 
 They contain settings to encrypt the flash and to enable 'secure boot' - this burns 'efuses' on the device - a one-way operation, and may render the device unusable.  
-As the built firmware does not include the Blockstream signature, the fw will not run on an official Blockstream Jade device.
+As the built firmware does not include the Blockstream signature(s), the fw will not run on an official Blockstream Jade device.
 
 The purpose of these builds is purely to reproduce the build and hence verify the firmware offered by Blockstream is indeed built from the publicly available tagged source code.
 
@@ -33,7 +32,6 @@ All following commands are to be run inside the 'jade_builder' docker container.
 
 3. Prepare the build environment
 ```
-. /root/esp/esp-idf/export.sh
 cd /builds/blockstream/jade
 git config --global --add safe.directory /builds/blockstream/jade
 ```
@@ -45,14 +43,16 @@ Since the mounted source repository will have a different owner from the user ru
 
 Generate the relevant config file to `./sdkconfig.defaults` using the script `tools/switch_to.sh`.
 
-| Jade Hardware Type          | Configuration | Command                                   |
-| --------------------------- | ------------- | ------------------------------------------|
-| Jade 1.0 (true wheel)       | BLE-enabled   | ./tools/switch_to.sh jade                 |
-|                             | no-radio      | ./tools/switch_to.sh jade --noradio       |
-| Jade 1.1 (rocker/jog-wheel) | BLE-enabled   | ./tools/switch_to.sh jade_v1_1            |
-|                             | no-radio      | ./tools/switch_to.sh jade_v1_1 --noradio  |
-| Jade 2.0 (two buttons)      | BLE-enabled   | ./tools/switch_to.sh jade_v2              |
-|                             | no-radio      | ./tools/switch_to.sh jade_v2 --noradio    |
+| Jade Hardware Type                 | Configuration | Command                                   |
+| ---------------------------        | ------------- | ------------------------------------------|
+| Jade 1.0 (true wheel)              | BLE-enabled   | ./tools/switch_to.sh jade                 |
+|                                    | no-radio      | ./tools/switch_to.sh jade --noradio       |
+| Jade 1.1 (rocker/jog-wheel)        | BLE-enabled   | ./tools/switch_to.sh jade_v1_1            |
+|                                    | no-radio      | ./tools/switch_to.sh jade_v1_1 --noradio  |
+| Jade 2.0 (two buttons)             | BLE-enabled   | ./tools/switch_to.sh jade_v2              |
+|                                    | no-radio      | ./tools/switch_to.sh jade_v2 --noradio    |
+| Jade 2.0c (2.0, no camera/battery) | BLE-enabled   | ./tools/switch_to.sh jade_v2c             |
+|                                    | no-radio      | ./tools/switch_to.sh jade_v2c --noradio   |
 
 5. Build
 ```
@@ -62,7 +62,7 @@ This makes a fw file `build/jade.bin`.
 
 6. Sign the binary with the 'dev' key
 ```
-espsecure.py sign_data --keyfile ./release/scripts/dev_fw_signing_key.pem --version 2 --output ./build/jade_signed.bin ./build/jade.bin
+espsecure.py sign_data --keyfile ./release/scripts/dev_fw_signing_key_A.pem --version 2 --output ./build/jade_signed.bin ./build/jade.bin
 ```
 
 7. Compare signed and unsigned binaries

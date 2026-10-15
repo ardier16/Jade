@@ -50,6 +50,8 @@ bool check_extended_data_fields(CborValue* params, const char* expected_origid, 
     JADE_ASSERT(params);
     JADE_ASSERT(expected_origid);
     JADE_ASSERT(expected_orig);
+    JADE_ASSERT(expected_seqnum <= UINT32_MAX);
+    JADE_ASSERT(expected_seqlen <= UINT32_MAX);
 
     const char* orig = NULL;
     size_t origlen = 0;
@@ -65,10 +67,10 @@ bool check_extended_data_fields(CborValue* params, const char* expected_origid, 
         return false;
     }
 
-    size_t nextseq = 0;
-    size_t seqlen = 0;
-    if (!rpc_get_sizet("seqlen", params, &seqlen) || seqlen != expected_seqlen
-        || !rpc_get_sizet("seqnum", params, &nextseq) || nextseq != expected_seqnum) {
+    uint32_t nextseq = 0;
+    uint32_t seqlen = 0;
+    if (!rpc_get_uint32("seqlen", params, &seqlen) || seqlen != expected_seqlen
+        || !rpc_get_uint32("seqnum", params, &nextseq) || nextseq != expected_seqnum) {
         JADE_LOGE("Extended data sequence fields mismatch");
         return false;
     }
@@ -129,10 +131,12 @@ bool params_identity_curve_index(CborValue* params, const char** identity, size_
 
     // index is optional
     if (rpc_has_field_data("index", params)) {
-        if (!rpc_get_sizet("index", params, index) || *index > BIP32_MAX_CHILD_INDEX) {
+        uint32_t index_in = 0;
+        if (!rpc_get_uint32("index", params, &index_in) || index_in > BIP32_MAX_CHILD_INDEX) {
             *errmsg = "Failed to extract valid index from parameters";
             return false;
         }
+        *index = (size_t)index_in;
     }
 
     return true;
@@ -140,7 +144,7 @@ bool params_identity_curve_index(CborValue* params, const char** identity, size_
 
 // Hash-prevouts and output index are needed to generate deterministic blinding factors.
 bool params_hashprevouts_outputindex(CborValue* params, const uint8_t** hash_prevouts, size_t* hash_prevouts_len,
-    size_t* output_index, const char** errmsg)
+    uint32_t* output_index, const char** errmsg)
 {
     JADE_ASSERT(params);
     JADE_INIT_OUT_PPTR(hash_prevouts);
@@ -154,7 +158,7 @@ bool params_hashprevouts_outputindex(CborValue* params, const uint8_t** hash_pre
         return false;
     }
 
-    if (!rpc_get_sizet("output_index", params, output_index)) {
+    if (!rpc_get_uint32("output_index", params, output_index)) {
         *errmsg = "Failed to extract output index from parameters";
         return false;
     }
@@ -230,10 +234,12 @@ bool params_multisig_pubkeys(const bool is_change, CborValue* params, multisig_d
 
     // Validate paths
     CborValue all_signer_paths;
+    size_t num_signer_paths = 0;
     bool all_paths_as_expected;
     bool final_elements_consistent;
-    if (!rpc_get_array("paths", params, &all_signer_paths)
-        || !multisig_validate_paths(is_change, &all_signer_paths, &all_paths_as_expected, &final_elements_consistent)) {
+    if (!rpc_get_array("paths", params, &all_signer_paths, &num_signer_paths)
+        || !multisig_validate_paths(
+            is_change, &all_signer_paths, num_signer_paths, &all_paths_as_expected, &final_elements_consistent)) {
         *errmsg = "Failed to extract signer paths from parameters";
         return false;
     }
@@ -242,7 +248,8 @@ bool params_multisig_pubkeys(const bool is_change, CborValue* params, multisig_d
     bool flipped_change_element = false;
     if (!all_paths_as_expected) {
         bool unused;
-        if (!multisig_validate_paths(!is_change, &all_signer_paths, &flipped_change_element, &unused)) {
+        if (!multisig_validate_paths(
+                !is_change, &all_signer_paths, num_signer_paths, &flipped_change_element, &unused)) {
             *errmsg = "Expected a valid change or non-change signer path";
             return false;
         }
@@ -352,8 +359,8 @@ bool params_tx_input_signing_data(const bool use_ae_signatures, CborValue* param
     // of the input prevout script before returning
     const bool have_sighash = rpc_has_field_data("sighash", params);
     if (have_sighash) {
-        size_t sighash = 0;
-        if (!rpc_get_sizet("sighash", params, &sighash) || sighash > UINT8_MAX) {
+        uint32_t sighash = 0;
+        if (!rpc_get_uint32("sighash", params, &sighash) || sighash > UINT8_MAX) {
             *errmsg = "Failed to fetch valid sighash from parameters";
             return false;
         }
@@ -403,7 +410,7 @@ bool params_tx_input_signing_data(const bool use_ae_signatures, CborValue* param
 }
 
 // Bip85 RSA key parameters (key size and index)
-bool params_get_bip85_rsa_key(CborValue* params, size_t* key_bits, size_t* index, const char** errmsg)
+bool params_get_bip85_rsa_key(CborValue* params, uint32_t* key_bits, uint32_t* index, const char** errmsg)
 {
     JADE_ASSERT(params);
     JADE_ASSERT(key_bits);
@@ -420,13 +427,13 @@ bool params_get_bip85_rsa_key(CborValue* params, size_t* key_bits, size_t* index
     }
 
     // Get number of key_bits and final index
-    if (!rpc_get_sizet("key_bits", params, key_bits) || *key_bits > MAX_RSA_GEN_KEY_LEN
+    if (!rpc_get_uint32("key_bits", params, key_bits) || *key_bits > MAX_RSA_GEN_KEY_LEN
         || !RSA_KEY_SIZE_VALID(*key_bits)) {
         *errmsg = "Failed to fetch valid key length from message";
         return false;
     }
 
-    if (!rpc_get_sizet("index", params, index) || *index > BIP32_MAX_CHILD_INDEX) {
+    if (!rpc_get_uint32("index", params, index) || *index > BIP32_MAX_CHILD_INDEX) {
         *errmsg = "Failed to fetch valid index from message";
         return false;
     }

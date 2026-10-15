@@ -33,10 +33,10 @@ static const TickType_t TIMEOUT_TICKS = 2000 / portTICK_PERIOD_MS;
 // Returns its length if valid, 0 if invalid.
 static size_t get_msg_len(cbor_msg_t* ctx, const uint8_t* const data_in, const size_t read_len)
 {
-    const int flags = CborValidateCompleteData;
-    const CborError cberr = cbor_parser_init(data_in, read_len, flags, &ctx->parser, &ctx->value);
+    const CborError cberr = cbor_parser_init(data_in, read_len, 0, &ctx->parser, &ctx->value);
     if (cberr == CborNoError) {
-        // If we can parse the value, and it may be an RPC message, return its length
+        // If we can parse the value, and it may be an RPC message, return its length.
+        // Note cbor_value_advance() ensures the message is valid and complete.
         CborValue tmp_value = ctx->value;
         if (cbor_value_advance(&tmp_value) == CborNoError && cbor_value_is_map(&ctx->value)) {
             return tmp_value.source.ptr - data_in;
@@ -91,7 +91,7 @@ static bool handle_immediate_message(const cbor_msg_t* const ctx)
             }
         }
 #if defined(CONFIG_DEBUG_MODE) && defined(CONFIG_LIBJADE)
-        else if (method_len == strlen("libjade_request") && !strncmp(method, "libjade_request", method_len)) {
+        else if (method_len == strlen(LIBJADE_REQUEST_METHOD) && !strncmp(method, LIBJADE_REQUEST_METHOD, method_len)) {
             process_libjade_request(ctx);
             return true;
         }
@@ -115,7 +115,7 @@ void handle_data(uint8_t* full_data_in, size_t* read_ptr, const size_t new_data_
 
     // Buffer is stale if we had bytes already and the timeout has expired
     bool have_stale = *read_ptr && now > *last_processing_time + TIMEOUT_TICKS;
-    JADE_LOGI("%u new of %u total %sbytes at tick %lu (prev %lu) from %d", new_data_len, *read_ptr + new_data_len,
+    JADE_LOGD("%u new of %u total %sbytes at tick %lu (prev %lu) from %d", new_data_len, *read_ptr + new_data_len,
         have_stale ? "stale " : "", now, *last_processing_time, ctx.source);
 
     while (true) {

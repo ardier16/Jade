@@ -46,7 +46,17 @@ typedef void (*inbound_message_reader_fn_t)(void*, uint8_t*, size_t);
 // Callback to write messages to the outbound destination
 typedef bool (*outbound_message_writer_fn_t)(const uint8_t*, size_t, void*);
 
-typedef enum { SOURCE_NONE, SOURCE_INTERNAL, SOURCE_SERIAL, SOURCE_QEMU_TCP, SOURCE_BLE } jade_msg_source_t;
+typedef enum {
+    SOURCE_NONE,
+    SOURCE_INTERNAL,
+    SOURCE_SERIAL,
+    SOURCE_QEMU_TCP,
+    SOURCE_BLE
+#ifdef CONFIG_LIBJADE
+    ,
+    SOURCE_LIBJADE
+#endif
+} jade_msg_source_t;
 
 typedef struct {
     CborValue value;
@@ -67,6 +77,11 @@ typedef struct {
 } bytes_info_t;
 
 const char* get_jade_id(void);
+
+#ifdef CONFIG_HEAP_TRACING
+void dump_mem_report(void);
+#endif
+
 WARN_UNUSED_RESULT bool jade_process_init(
     TaskHandle_t** serial_handle, TaskHandle_t** ble_handle, TaskHandle_t** qemu_tcp_handle, TaskHandle_t** gui_handle);
 

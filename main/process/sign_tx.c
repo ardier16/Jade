@@ -11,6 +11,7 @@
 #include "../utils/cbor_rpc.h"
 #include "../utils/event.h"
 #include "../utils/malloc_ext.h"
+#include "../utils/util.h"
 #include "../utils/wally_ext.h"
 #include "../wallet.h"
 
@@ -59,9 +60,8 @@ static struct wally_tx* params_txn(jade_process_t* process, const CborValue* par
     }
     jade_process_call_on_exit(process, jade_wally_free_tx_wrapper, tx);
 
-    size_t num_inputs = 0;
-    bool ret = rpc_get_sizet("num_inputs", params, &num_inputs);
-    if (!ret || num_inputs == 0) {
+    const uint32_t num_inputs = rpc_get_uint32_or("num_inputs", params, 0);
+    if (num_inputs == 0) {
         errmsg = "Failed to extract valid number of inputs from parameters";
         goto fail;
     }
@@ -88,11 +88,12 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
     JADE_ASSERT(process);
     JADE_ASSERT(params);
     JADE_ASSERT(network_id != NETWORK_NONE);
-    JADE_ASSERT(tx);
+    JADE_ASSERT(tx && tx->num_outputs);
     JADE_INIT_OUT_PPTR(output_info);
 
     CborValue wallet_outputs;
-    const bool have_outputs = rpc_get_array("change", params, &wallet_outputs);
+    size_t num_wallet_outputs = 0;
+    const bool have_outputs = rpc_get_array("change", params, &wallet_outputs, &num_wallet_outputs);
     // For Bitcoin, we only need the output info if the caller gave it.
     // For Liquid, we always need output_info to 'unblind' confidential txs.
     if (have_outputs || for_liquid) {
@@ -108,10 +109,7 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
     multisig_data_t* multisig_data = NULL;
     descriptor_data_t* descriptor = NULL;
 
-    size_t num_array_items = 0;
-    if (!cbor_value_is_array(&wallet_outputs)
-        || cbor_value_get_array_length(&wallet_outputs, &num_array_items) != CborNoError
-        || num_array_items != tx->num_outputs) {
+    if (num_wallet_outputs != tx->num_outputs) {
         errmsg = "Unexpected number of output entries for transaction";
         goto cleanup;
     }
@@ -188,9 +186,9 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
                 }
 
                 // The path is given in two parts - optional (change) branch and mandatory index pointer
-                const size_t branch = rpc_get_sizet_or("branch", &arrayItem, 0); // optional
-                size_t pointer = 0;
-                if (!rpc_get_sizet("pointer", &arrayItem, &pointer)) {
+                const uint32_t branch = rpc_get_uint32_or("branch", &arrayItem, 0); // optional
+                uint32_t pointer = 0;
+                if (!rpc_get_uint32("pointer", &arrayItem, &pointer)) {
                     errmsg = "Failed to extract path elements from parameters";
                     goto cleanup;
                 }
@@ -239,14 +237,14 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
                     }
 
                     // Optional 'blocks' for csv outputs, defaults to 0
-                    const size_t csv_blocks = rpc_get_sizet_or("csv_blocks", &arrayItem, 0);
+                    const uint32_t csv_blocks = rpc_get_uint32_or("csv_blocks", &arrayItem, 0);
 
                     // If number of csv blocks unexpected show a warning message and ask the user to confirm
                     if (csv_blocks && !network_is_known_csv_blocks(network_id, csv_blocks)) {
-                        JADE_LOGW("Unexpected number of csv blocks in path for output: %u", csv_blocks);
+                        JADE_LOGW("Unexpected number of csv blocks in path for output: %" PRIu32, csv_blocks);
                         const int ret = snprintf(outinfo->message, sizeof(outinfo->message),
-                            "This wallet output has a non-standard csv value (%u), so it may be difficult to find.  "
-                            "Proceed at your own risk.",
+                            "This wallet output has a non-standard csv value (%" PRIu32
+                            "), so it may be difficult to find.  Proceed at your own risk.",
                             csv_blocks);
                         JADE_ASSERT(
                             ret > 0 && ret < sizeof(outinfo->message)); // Keep message within size handled by gui
@@ -474,8 +472,10 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
             jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Invalid asset info passed");
             goto cleanup;
         }
-        jade_process_free_on_exit(process, assets);
-        JADE_LOGI("Read %d assets from message", num_assets);
+        if (assets) {
+            jade_process_free_on_exit(process, assets);
+            JADE_LOGI("Read %d assets from message", num_assets);
+        }
     }
 
     const char* errmsg = NULL;
@@ -566,7 +566,7 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
     uint32_t num_p2tr_to_sign = 0; // Total number of p2tr inputs to sign
 
     // Loop to fetch data for and validate all inputs
-    for (size_t index = 0; index < tx->num_inputs; ++index) {
+    for (uint32_t index = 0; index < tx->num_inputs; ++index) {
         jade_process_load_in_message(process, true);
         if (!IS_CURRENT_MESSAGE(process, "tx_input")) {
             // Protocol error
@@ -607,7 +607,7 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
                 goto cleanup;
             }
             if (!sighash_is_supported(txtype, input_data->sig_type, input_data->sighash, for_liquid, is_partial)) {
-                JADE_LOGW("Unsupported sighash for signing input %u", index);
+                JADE_LOGW("Unsupported sighash for signing input %" PRIu32, index);
                 jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Unsupported sighash value");
                 goto cleanup;
             }
@@ -637,6 +637,12 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
                 } else if (errmsg) {
                     // Invalid input commitments (rather than simply not present)
                     jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);
+                    goto cleanup;
+                } else {
+                    // No commitment data. Reject otherwise the user is being asked to approve an incomplete summary
+                    JADE_LOGW("Input %" PRIu32 " has no commitment data for the wallet summary", index);
+                    jade_process_reject_message(
+                        process, CBOR_RPC_BAD_PARAMETERS, "Failed to validate input/output summary information");
                     goto cleanup;
                 }
             }
@@ -725,7 +731,11 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
             if (res == WALLY_OK) {
                 res = wally_map_add_integer(&signing_data->amounts, index, (uint8_t*)&txout->satoshi, sizeof(uint64_t));
                 // Keep a running total
-                input_amount += txout->satoshi;
+                if (res == WALLY_OK && !checked_add_uint64(input_amount, txout->satoshi, &input_amount)) {
+                    jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Total input amounts exceed maximum");
+                    JADE_WALLY_VERIFY(wally_tx_free(input_tx));
+                    goto cleanup;
+                }
             }
             if (res != WALLY_OK) {
                 jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Failed to extract prevout");
@@ -753,7 +763,10 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
             if (rpc_get_uint64("satoshi", &params, &satoshi)) {
                 res = wally_map_add_integer(&signing_data->amounts, index, (uint8_t*)&satoshi, sizeof(uint64_t));
                 // Keep a running total
-                input_amount += satoshi;
+                if (res == WALLY_OK && !checked_add_uint64(input_amount, satoshi, &input_amount)) {
+                    jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Total input amounts exceed maximum");
+                    goto cleanup;
+                }
             }
             if (res != WALLY_OK) {
                 jade_process_reject_message(
@@ -843,8 +856,15 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
 
     if (!for_liquid) {
         // Bitcoin: Sanity check amounts
-        uint64_t output_amount;
-        JADE_WALLY_VERIFY(wally_tx_get_total_output_satoshi(tx, &output_amount));
+        uint64_t output_amount = 0;
+        if (wally_tx_get_total_output_satoshi(tx, &output_amount) != WALLY_OK) {
+            // If using ae-signatures, we need to load the message to send the error back on
+            if (use_ae_signatures) {
+                jade_process_load_in_message(process, true);
+            }
+            jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Total output amounts exceed maximum");
+            goto cleanup;
+        }
         if (output_amount > input_amount) {
             // If using ae-signatures, we need to load the message to send the error back on
             if (use_ae_signatures) {
